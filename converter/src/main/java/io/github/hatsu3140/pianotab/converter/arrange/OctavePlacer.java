@@ -4,6 +4,7 @@ import io.github.hatsu3140.pianotab.converter.model.Arrangement;
 import io.github.hatsu3140.pianotab.converter.model.Note;
 import io.github.hatsu3140.pianotab.converter.model.Tuning;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -16,6 +17,10 @@ import java.util.List;
  * <p>弾きやすい範囲はチューニング・カポ・使うフレットの上限から決める。
  * メロディは「1弦の一番高いフレット」から下の約1オクターブ半、ベースは「一番低い開放弦」から上の
  * 1オクターブ少々（レギュラー・カポなし・12フレットまでなら、メロディ A3〜E5、ベース E2〜G3）。
+ *
+ * <p>移動した結果、同じ瞬間に鳴っているベースよりメロディが低くなったら（もとはメロディの方が高かったのに）、
+ * メロディが埋もれないよう、そのベースを1オクターブ下げる。下げられなければメロディを1オクターブ上げ、
+ * それも無理ならそのベースを省く。もとの楽譜でメロディがベースより低い箇所はそのままにする。
  */
 public class OctavePlacer {
 
@@ -49,9 +54,42 @@ public class OctavePlacer {
     public Arrangement place(Arrangement arrangement) {
         int melodyShift = bestShift(arrangement.melody(), melodyLow, melodyHigh);
         int bassShift = bestShift(arrangement.bass(), bassLow, bassHigh);
-        return new Arrangement(arrangement.info(),
-                shift(arrangement.melody(), melodyShift),
-                shift(arrangement.bass(), bassShift));
+        List<Note> melody = new ArrayList<>(shift(arrangement.melody(), melodyShift));
+        List<Note> bass = new ArrayList<>(shift(arrangement.bass(), bassShift));
+        if (melodyShift != bassShift) {
+            keepMelodyAboveBass(arrangement.melody(), melody, arrangement.bass(), bass);
+        }
+        return new Arrangement(arrangement.info(), melody, bass.stream().filter(note -> note != null).toList());
+    }
+
+    /** 移動でメロディがベースの下に潜った箇所を直す（original* は移動前） */
+    private void keepMelodyAboveBass(List<Note> originalMelody, List<Note> melody,
+                                     List<Note> originalBass, List<Note> bass) {
+        for (int m = 0; m < melody.size(); m++) {
+            for (int b = 0; b < bass.size(); b++) {
+                Note bassNote = bass.get(b);
+                Note melodyNote = melody.get(m);
+                if (bassNote == null || !overlaps(melodyNote, bassNote) || melodyNote.pitch() > bassNote.pitch()
+                        || originalMelody.get(m).pitch() <= originalBass.get(b).pitch()) {
+                    continue;
+                }
+                if (bassNote.pitch() - 12 >= bassLow) {
+                    bass.set(b, withPitch(bassNote, bassNote.pitch() - 12));
+                } else if (melodyNote.pitch() + 12 <= melodyHigh) {
+                    melody.set(m, withPitch(melodyNote, melodyNote.pitch() + 12));
+                } else {
+                    bass.set(b, null);
+                }
+            }
+        }
+    }
+
+    private static boolean overlaps(Note a, Note b) {
+        return a.startTick() < b.startTick() + b.durationTicks() && b.startTick() < a.startTick() + a.durationTicks();
+    }
+
+    private static Note withPitch(Note note, int pitch) {
+        return new Note(pitch, note.startTick(), note.durationTicks());
     }
 
     /** はみ出す量が一番少ない移動量（半音単位、12の倍数）。同じなら移動の少ない方を選ぶ */

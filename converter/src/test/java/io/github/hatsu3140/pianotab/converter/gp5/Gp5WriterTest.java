@@ -77,4 +77,44 @@ class Gp5WriterTest {
 
         assertEquals(List.of(new Beat(new Duration(-2, false), note, false)), beats);
     }
+
+    @Test
+    void writesTripletsAsTriplets() {
+        // 1拍目に8分音符の3連符（160 tick ずつ）、2拍目からは普通の4分音符
+        List<TabNote> notes = List.of(
+                new TabNote(new Note(64, 0, 160), 1, 0),
+                new TabNote(new Note(65, 160, 160), 1, 1),
+                new TabNote(new Note(67, 320, 160), 1, 3),
+                new TabNote(new Note(69, 480, 480), 1, 5));
+
+        List<Beat> beats = rhythm.toBeats(notes, ONE_MEASURE.measures()).get(0);
+
+        Duration eighthTriplet = new Duration(1, false, true);
+        assertEquals(List.of(
+                new Beat(eighthTriplet, notes.get(0), false),
+                new Beat(eighthTriplet, notes.get(1), false),
+                new Beat(eighthTriplet, notes.get(2), false),
+                new Beat(new Duration(0, false), notes.get(3), false),
+                new Beat(new Duration(-1, false), null, false)), beats);
+    }
+
+    @Test
+    void keepsStraightSixteenthsStraight() {
+        List<TabNote> notes = List.of(
+                new TabNote(new Note(64, 0, 120), 1, 0),
+                new TabNote(new Note(65, 120, 120), 1, 1),
+                new TabNote(new Note(67, 240, 240), 1, 3));
+
+        List<Beat> beats = rhythm.toBeats(notes, ONE_MEASURE.measures()).get(0);
+
+        assertEquals(new Duration(2, false), beats.get(0).duration());
+        assertEquals(new Duration(1, false), beats.get(2).duration());
+    }
+
+    @Test
+    void widensTimeSignatureOfOverlongMeasure() {
+        // 4/4 と書いてあるのに8拍分ある小節は 8/4 にする。弱起のように短い小節はそのまま
+        assertEquals(new Measure(0, 3840, 8, 4), Gp5Writer.fitTimeSignature(new Measure(0, 3840, 4, 4), 480));
+        assertEquals(new Measure(0, 480, 4, 4), Gp5Writer.fitTimeSignature(new Measure(0, 480, 4, 4), 480));
+    }
 }

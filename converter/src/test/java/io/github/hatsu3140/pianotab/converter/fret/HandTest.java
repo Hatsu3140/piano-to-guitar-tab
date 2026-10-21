@@ -96,6 +96,8 @@ class HandTest {
         assertTrue(hand.canPlay(List.of(note(1, 4), note(6, 1))));
         // 2・3弦1フレットを人差し指と中指、4弦3を薬指で押さえたまま、小指で1弦4には届かない
         assertFalse(hand.canPlay(List.of(note(1, 4), note(2, 1), note(3, 1), note(4, 3))));
+        // 小指以外はそのまま: B♭（1フレットのセーハと、3フレットに中指・薬指・小指）
+        assertTrue(hand.canPlay(List.of(note(1, 1), note(2, 3), note(3, 3), note(4, 3), note(5, 1))));
         // カポを付けても、ネックの実際のフレットで考える
         assertTrue(new Hand(5, 4, 4, true).canPlay(List.of(note(1, 9), note(6, 5))));
     }

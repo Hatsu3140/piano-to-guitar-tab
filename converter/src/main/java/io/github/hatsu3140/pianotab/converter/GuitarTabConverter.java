@@ -6,6 +6,7 @@ import io.github.hatsu3140.pianotab.converter.arrange.VoiceExtractor;
 import io.github.hatsu3140.pianotab.converter.fret.ChordBuilder;
 import io.github.hatsu3140.pianotab.converter.fret.FretAssigner;
 import io.github.hatsu3140.pianotab.converter.fret.Hand;
+import io.github.hatsu3140.pianotab.converter.fret.HeldNoteTrimmer;
 import io.github.hatsu3140.pianotab.converter.fret.PlayabilityChecker;
 import io.github.hatsu3140.pianotab.converter.gp5.Gp5Writer;
 import io.github.hatsu3140.pianotab.converter.model.Arrangement;
@@ -50,12 +51,16 @@ public class GuitarTabConverter {
 
         Hand hand = new Hand(options.capo(), difficulty.maxStretch(), Math.max(2, difficulty.maxFingers()),
                 options.barre());
-        PlayabilityChecker.Result check = new PlayabilityChecker(hand).check(tabScore);
+        PlayabilityChecker checker = new PlayabilityChecker(hand);
+        HeldNoteTrimmer.Result trimmed = new HeldNoteTrimmer(checker).trim(tabScore);
+        tabScore = trimmed.tabScore();
+        PlayabilityChecker.Result check = checker.check(tabScore);
         long chords = tabScore.inner().stream().map(note -> note.note().startTick()).distinct().count();
         ConversionReport report = new ConversionReport(
                 arrangement.melody().size(), arrangement.melody().size() - tabScore.melody().size(),
                 arrangement.bass().size(), arrangement.bass().size() - tabScore.bass().size(),
-                (int) chords, tabScore.strokes().size(), check.barres(), check.unplayablePlaces());
+                (int) chords, tabScore.strokes().size(), check.barres(), trimmed.trimmedNotes(),
+                check.unplayablePlaces() + check.fingerSwapTicks().size());
         byte[] gp5 = gp5Writer.write(tabScore);
         return new ConversionResult(tabScore, gp5, report);
     }

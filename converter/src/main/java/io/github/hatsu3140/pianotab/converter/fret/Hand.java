@@ -19,9 +19,9 @@ import java.util.Set;
  *   <li>押さえるフレットの幅（開放弦は除く）が上限以内</li>
  *   <li>使う指の本数が上限以内。セーハは1本と数える</li>
  *   <li>指の順番を守る: 番号の大きい指ほど同じかより高いフレットを押さえる</li>
- *   <li>指どうしの開き: 2本の指のフレットの差は「指の番号の差」まで。5フレットより上はフレットの幅が
- *       狭いので「指の番号の差 + 1」まで。たとえば1フレット付近では人差し指と小指は3フレットまで、
- *       7フレット付近なら4フレットまで離せる</li>
+ *   <li>指どうしの開き: 2本の指のフレットの差は「指の番号の差 + 1」まで。たとえば中指と薬指は
+ *       2フレットまで、人差し指と小指は4フレットまで離せる。ただし5フレットより下はフレットの幅が
+ *       広いので、小指は1フレット少なくしか開けない（1フレット付近の人差し指と小指は3フレットまで）</li>
  *   <li>同じフレットを別の指で押さえるときは、弦の差が「指の番号の差 + 1」まで（6弦と1弦を
  *       人差し指と中指で同じフレット、のような形はできない）</li>
  *   <li>1本の指で押さえるのは1か所だけ。ただし人差し指はセーハできる</li>
@@ -46,7 +46,7 @@ public class Hand {
     static final int BARRE_REACH = 2;
     /** 左手で押さえるのに使える指の数 */
     public static final int MAX_FINGERS = Fingering.PINKY;
-    /** このフレット（ネックの実際のフレット）から上では、指どうしを1フレット多く開ける */
+    /** このフレット（ネックの実際のフレット）より下では、小指を1フレット少なくしか開けない */
     static final int WIDE_SPREAD_FROM = 5;
 
     public Hand(int capo, int maxStretch, int maxFingers, boolean barre) {
@@ -65,17 +65,26 @@ public class Hand {
      * セーハしないで押さえられるならそれを、無理ならセーハする押さえ方を選ぶ。どちらも指の少ない方を選ぶ。
      */
     public Optional<Fingering> fingering(List<TabNote> notes) {
+        return fingerings(notes).stream().min(PREFERENCE);
+    }
+
+    /** よい押さえ方の順: セーハしない方、指の少ない方 */
+    static final Comparator<Fingering> PREFERENCE = Comparator.comparing(Fingering::usesBarre)
+            .thenComparingInt(Fingering::fingerCount);
+
+    /** ルールを守れる押さえ方をすべて挙げる。弾けなければ空 */
+    public List<Fingering> fingerings(List<TabNote> notes) {
         Set<Integer> strings = new HashSet<>();
         int lowest = Integer.MAX_VALUE;
         int highest = Integer.MIN_VALUE;
         List<TabNote> fretted = new ArrayList<>();
         for (TabNote note : notes) {
             if (!strings.add(note.string())) {
-                return Optional.empty();
+                return List.of();
             }
             int fret = relativeFret(note);
             if (fret < 0) {
-                return Optional.empty();
+                return List.of();
             }
             if (fret > 0) {
                 fretted.add(note);
@@ -84,19 +93,17 @@ public class Hand {
             }
         }
         if (!fretted.isEmpty() && highest - lowest > maxStretch) {
-            return Optional.empty();
+            return List.of();
         }
         // 低いフレットから順に指を決めていく（同じフレットなら太い弦から）
         fretted.sort(Comparator.comparingInt(this::relativeFret)
                 .thenComparing(Comparator.comparingInt(TabNote::string).reversed()));
-        Search plain = new Search(notes, fretted, false);
-        plain.run(0);
-        if (plain.best != null || !barre) {
-            return Optional.ofNullable(plain.best);
+        List<Fingering> found = new ArrayList<>();
+        new Search(notes, fretted, false, found).run(0);
+        if (barre) {
+            new Search(notes, fretted, true, found).run(0);
         }
-        Search barred = new Search(notes, fretted, true);
-        barred.run(0);
-        return Optional.ofNullable(barred.best);
+        return found;
     }
 
     /** 押さえるのに必要な指の数（弾けないときは、押さえる音の数） */
@@ -111,11 +118,17 @@ public class Hand {
     }
 
     /**
-     * 指の番号の差より多く開ける分。ネックの根元はフレットの幅が広いので、
-     * {@link #WIDE_SPREAD_FROM} フレットより下では、指1本につき1フレットまでしか開けない
+     * 2本の指（lower < upper）を開けるフレットの数。基本は「指の番号の差 + 1」
+     * （人差し指と中指は2フレット、人差し指と小指は4フレット）。ただしネックの根元はフレットの幅が
+     * 広いので、{@link #WIDE_SPREAD_FROM} フレットより下では小指を1フレット少なくしか開けない
+     * （人差し指と小指は3フレットまで）。
      */
-    private int extraSpread(int relativeFret) {
-        return relativeFret + capo >= WIDE_SPREAD_FROM ? 1 : 0;
+    private int spread(int lower, int upper, int relativeFret) {
+        int spread = upper - lower + 1;
+        if (upper == Fingering.PINKY && relativeFret + capo < WIDE_SPREAD_FROM) {
+            spread--;
+        }
+        return spread;
     }
 
     /** カポを基準にしたフレット */
@@ -123,7 +136,7 @@ public class Hand {
         return note.fret() - capo;
     }
 
-    /** 押さえる音に指を1つずつ割り当てて、ルールを守れる割り当てのうち指の一番少ないものを探す */
+    /** 押さえる音に指を1つずつ割り当てて、ルールを守れる割り当てを全部探す */
     private final class Search {
         private final List<TabNote> notes;
         private final List<TabNote> fretted;
@@ -134,12 +147,13 @@ public class Hand {
         private final int[] fingerUses = new int[Fingering.PINKY + 1];
         /** 指ごとに、最初に押さえた弦 */
         private final int[] fingerString = new int[Fingering.PINKY + 1];
-        private Fingering best;
+        private final List<Fingering> found;
 
-        Search(List<TabNote> notes, List<TabNote> fretted, boolean useBarre) {
+        Search(List<TabNote> notes, List<TabNote> fretted, boolean useBarre, List<Fingering> found) {
             this.notes = notes;
             this.fretted = fretted;
             this.useBarre = useBarre;
+            this.found = found;
             this.assigned = new int[fretted.size()];
         }
 
@@ -180,7 +194,8 @@ public class Hand {
                 int gap = fret - fingerFret[other];
                 int fingerGap = finger - other;
                 // 指の順番（番号の大きい指ほど高いフレット）と、指どうしの開き
-                int spread = Math.abs(fingerGap) + extraSpread(Math.min(fret, fingerFret[other]));
+                int spread = spread(Math.min(finger, other), Math.max(finger, other),
+                        Math.min(fret, fingerFret[other]));
                 if (fingerGap > 0 ? gap < 0 || gap > spread : gap > 0 || -gap > spread) {
                     return false;
                 }
@@ -217,15 +232,12 @@ public class Hand {
             } else if (useBarre) {
                 return; // セーハしない押さえ方は、もう調べてある
             }
-            if (best != null && best.fingerCount() <= count) {
-                return;
-            }
             List<Fingering.Placement> placements = new ArrayList<>();
             for (TabNote note : notes) {
                 int index = fretted.indexOf(note);
                 placements.add(new Fingering.Placement(note, index < 0 ? 0 : assigned[index]));
             }
-            best = new Fingering(List.copyOf(placements), barreFret, barreTo);
+            found.add(new Fingering(List.copyOf(placements), barreFret, barreTo));
         }
 
         /** セーハは一番低いフレットで、1弦から barreTo 弦までに開放弦がなく、他の指が届く範囲にある */

@@ -28,6 +28,16 @@ public record Fingering(List<Placement> placements, int barreFret, int barreTo) 
     public record Placement(TabNote note, int finger) {
     }
 
+    /** その音を押さえる指（0 = 開放弦）。この押さえ方に含まれない音なら -1 */
+    public int fingerOf(TabNote note) {
+        for (Placement placement : placements) {
+            if (placement.note().equals(note)) {
+                return placement.finger();
+            }
+        }
+        return -1;
+    }
+
     public boolean usesBarre() {
         return barreFret > 0;
     }

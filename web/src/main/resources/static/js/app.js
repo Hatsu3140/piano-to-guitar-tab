@@ -15,8 +15,8 @@ form.addEventListener('submit', async (event) => {
         return;
     }
 
-    const formData = new FormData();
-    formData.append('file', file);
+    // ファイルと設定（難易度・チューニング・カポ・移調）をまとめて送る
+    const formData = new FormData(form);
 
     submitButton.disabled = true;
     showStatus('変換中…', false);

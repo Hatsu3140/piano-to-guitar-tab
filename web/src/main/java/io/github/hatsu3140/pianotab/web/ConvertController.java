@@ -1,7 +1,10 @@
 package io.github.hatsu3140.pianotab.web;
 
+import io.github.hatsu3140.pianotab.converter.ConversionOptions;
 import io.github.hatsu3140.pianotab.converter.ConversionResult;
+import io.github.hatsu3140.pianotab.converter.Difficulty;
 import io.github.hatsu3140.pianotab.converter.GuitarTabConverter;
+import io.github.hatsu3140.pianotab.converter.model.Tuning;
 import io.github.hatsu3140.pianotab.converter.musicxml.MusicXmlFormatException;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -19,7 +22,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 画面からアップロードされた MusicXML を受け取り、.gp5 ファイルにして返す API。
+ * 画面からアップロードされた MusicXML と設定を受け取り、.gp5 ファイルにして返す API。
  */
 @RestController
 public class ConvertController {
@@ -33,7 +36,12 @@ public class ConvertController {
     }
 
     @PostMapping("/api/convert")
-    public ResponseEntity<?> convert(@RequestParam("file") MultipartFile file) throws IOException {
+    public ResponseEntity<?> convert(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(name = "difficulty", defaultValue = "INTERMEDIATE") String difficulty,
+            @RequestParam(name = "tuning", defaultValue = "STANDARD") String tuning,
+            @RequestParam(name = "capo", defaultValue = "0") int capo,
+            @RequestParam(name = "transpose", defaultValue = "0") int transpose) throws IOException {
         String fileName = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
         if (file.isEmpty()) {
             return badRequest("ファイルが空です。");
@@ -43,9 +51,16 @@ public class ConvertController {
             return badRequest("MusicXML ファイル（.musicxml / .xml / .mxl）を選んでください。");
         }
 
+        ConversionOptions options;
+        try {
+            options = new ConversionOptions(parseDifficulty(difficulty), parseTuning(tuning), capo, transpose);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
+        }
+
         ConversionResult result;
         try (InputStream in = file.getInputStream()) {
-            result = converter.convert(in);
+            result = converter.convert(in, options);
         } catch (MusicXmlFormatException e) {
             return badRequest("変換できませんでした: " + e.getMessage());
         }
@@ -57,6 +72,22 @@ public class ConvertController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.attachment().filename(gp5Name, StandardCharsets.UTF_8).build().toString())
                 .body(result.gp5());
+    }
+
+    private static Difficulty parseDifficulty(String value) {
+        try {
+            return Difficulty.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("難易度の指定が正しくありません: " + value);
+        }
+    }
+
+    private static Tuning parseTuning(String value) {
+        return switch (value) {
+            case "STANDARD" -> Tuning.STANDARD;
+            case "DROP_D" -> Tuning.DROP_D;
+            default -> throw new IllegalArgumentException("チューニングの指定が正しくありません: " + value);
+        };
     }
 
     private static ResponseEntity<ConvertResponse> badRequest(String message) {

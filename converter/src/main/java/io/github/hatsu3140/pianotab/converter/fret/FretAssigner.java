@@ -45,6 +45,7 @@ public class FretAssigner {
     private static final double DROP_BASS_COST = 30.0;
     private static final double CUT_BASS_COST = 10.0;
     private static final double CUT_MELODY_COST = 15.0;
+    private static final double FAST_JUMP_COST = 2.0;
 
     private final Tuning tuning;
     private final int capo;
@@ -248,7 +249,12 @@ public class FretAssigner {
         int handBefore = before.handPosition();
         int handAfter = after.handPosition();
         if (handBefore > 0 && handAfter > 0) {
-            total += Math.abs(handAfter - handBefore) * moveCost * speed;
+            int jump = Math.abs(handAfter - handBefore);
+            total += jump * moveCost * speed;
+            // 4分音符より短い間に、指を広げて届く幅を超えて手を飛ばすのは、難易度に関係なく難しい
+            if (speed > 1) {
+                total += Math.max(0, jump - maxStretch) * FAST_JUMP_COST * speed;
+            }
         }
         return total;
     }

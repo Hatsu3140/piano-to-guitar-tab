@@ -77,7 +77,8 @@ public class OctavePlacer {
         if (melodyShift != bassShift) {
             keepMelodyAboveBass(arrangement.melody(), melody, arrangement.bass(), bass);
         }
-        return new Arrangement(arrangement.info(), melody, bass.stream().filter(note -> note != null).toList());
+        return new Arrangement(arrangement.info(), melody, bass.stream().filter(note -> note != null).toList(),
+                arrangement.harmony());
     }
 
     /**

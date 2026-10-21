@@ -74,8 +74,11 @@ class ConvertControllerTest {
                         .param("difficulty", "BEGINNER")
                         .param("tuning", "DROP_D")
                         .param("capo", "3")
-                        .param("transpose", "-2"))
-                .andExpect(status().isOk());
+                        .param("transpose", "-2")
+                        .param("barre", "false")
+                        .param("strokes", "false"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Conversion-Report", containsString("%E3%83%A1%E3%83%AD%E3%83%87%E3%82%A3")));
     }
 
     @Test

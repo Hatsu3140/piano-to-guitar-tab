@@ -5,9 +5,12 @@ import io.github.hatsu3140.pianotab.converter.model.Note;
 import io.github.hatsu3140.pianotab.converter.model.Score;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -21,18 +24,33 @@ import java.util.TreeMap;
  * </ul>
  * どの場合も、メロディがまだ伸びている間に鳴り始めた低い音はメロディにしない
  * （伴奏の音がメロディに混ざらないようにするため）。ベースも同じように扱う。
+ *
+ * <p>メロディにもベースにも選ばれなかったピアノの音は、和音の候補（harmony）として残す。
  */
 public class VoiceExtractor {
 
     public Arrangement extract(Score score) {
+        List<Note> piano = new ArrayList<>(score.upper());
+        piano.addAll(score.lower());
         List<Note> melodySource = score.vocal().isEmpty() ? score.upper() : score.vocal();
+        Arrangement twoVoices;
         if (!score.lower().isEmpty()) {
-            return new Arrangement(score.info(), topLine(melodySource), bottomLine(score.lower()));
+            twoVoices = new Arrangement(score.info(), topLine(melodySource), bottomLine(score.lower()));
+        } else if (!score.vocal().isEmpty()) {
+            twoVoices = new Arrangement(score.info(), topLine(score.vocal()), bottomLine(score.upper()));
+        } else {
+            twoVoices = extractFromOneStaff(score);
         }
-        if (!score.vocal().isEmpty()) {
-            return new Arrangement(score.info(), topLine(score.vocal()), bottomLine(score.upper()));
-        }
-        return extractFromOneStaff(score);
+        return new Arrangement(score.info(), twoVoices.melody(), twoVoices.bass(),
+                remaining(piano, twoVoices.melody(), twoVoices.bass()));
+    }
+
+    /** notes のうち、メロディにもベースにも使われなかった音 */
+    private static List<Note> remaining(List<Note> notes, List<Note> melody, List<Note> bass) {
+        Set<Note> used = Collections.newSetFromMap(new IdentityHashMap<>());
+        used.addAll(melody);
+        used.addAll(bass);
+        return notes.stream().filter(note -> !used.contains(note)).toList();
     }
 
     /** 一番上の線: 各タイミングの一番高い音。伸びている音より低い音は取らない */

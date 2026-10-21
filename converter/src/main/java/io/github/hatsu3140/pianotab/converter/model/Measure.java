@@ -9,4 +9,11 @@ package io.github.hatsu3140.pianotab.converter.model;
  * @param beatType    拍子の分母（3/4 拍子なら 4）
  */
 public record Measure(long startTick, long lengthTicks, int beats, int beatType) {
+
+    /** 1拍の長さ。6/8 拍子のような複合拍子は付点4分音符を1拍とする */
+    public long beatTicks(int ticksPerQuarter) {
+        long unit = (long) ticksPerQuarter * 4 / beatType;
+        boolean compound = beatType == 8 && beats % 3 == 0 && beats > 3;
+        return compound ? unit * 3 : unit;
+    }
 }

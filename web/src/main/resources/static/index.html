@@ -19,9 +19,9 @@
             <label for="difficulty" class="label">難易度</label>
             <select id="difficulty" name="difficulty">
                 <option value="INTRODUCTORY">入門（メロディだけ・0〜5フレット）</option>
-                <option value="BEGINNER">初級（メロディ＋小節頭のベース・0〜5フレット）</option>
-                <option value="INTERMEDIATE" selected>中級（メロディ＋拍頭のベース・0〜7フレット）</option>
-                <option value="ADVANCED">上級（メロディ＋ベース・0〜15フレット）</option>
+                <option value="BEGINNER">初級（メロディ＋小節頭のベース・ふだん2音・0〜5フレット）</option>
+                <option value="INTERMEDIATE" selected>中級（メロディ＋拍頭のベース＋和音・3音まで・0〜7フレット）</option>
+                <option value="ADVANCED">上級（メロディ＋ベース＋和音・5音まで・0〜15フレット）</option>
             </select>
 
             <label for="tuning" class="label">チューニング</label>
@@ -44,12 +44,19 @@
 
             <label for="transpose" class="label">移調（半音）</label>
             <input id="transpose" name="transpose" type="number" min="-12" max="12" step="1" value="0">
+
+            <span class="label">奏法</span>
+            <div class="checks">
+                <label><input id="barre" type="checkbox" checked> セーハを使う</label>
+                <label><input id="strokes" type="checkbox" checked> ストロークを入れる</label>
+            </div>
         </div>
 
         <button id="submit-button" type="submit">変換する</button>
     </form>
 
     <p id="status" class="status" role="status"></p>
+    <ul id="report" class="report"></ul>
 
     <p class="note">細かい調整は TuxGuitar などのソフトで行ってください。</p>
 </main>

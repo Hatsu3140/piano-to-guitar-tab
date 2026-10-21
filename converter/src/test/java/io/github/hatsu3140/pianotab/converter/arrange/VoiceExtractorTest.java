@@ -27,6 +27,29 @@ class VoiceExtractorTest {
     }
 
     @Test
+    void keepsRemainingNotesAsHarmony() {
+        // C3, E4, G4 → メロディ G4、ベース C3、残りの E4 は和音の候補
+        Score score = new Score(ONE_MEASURE, List.of(), List.of(new Note(64, 0, 480), new Note(67, 0, 480)),
+                List.of(new Note(48, 0, 480), new Note(55, 0, 480)));
+
+        Arrangement arrangement = new VoiceExtractor().extract(score);
+
+        assertEquals(List.of(new Note(64, 0, 480), new Note(55, 0, 480)), arrangement.harmony());
+    }
+
+    @Test
+    void transposingKeepsStaves() {
+        Score score = new Score(ONE_MEASURE, List.of(new Note(72, 0, 480)), List.of(new Note(67, 0, 480)),
+                List.of(new Note(48, 0, 480)));
+
+        Score transposed = score.transpose(-2);
+
+        assertEquals(List.of(new Note(70, 0, 480)), transposed.vocal());
+        assertEquals(List.of(new Note(65, 0, 480)), transposed.upper());
+        assertEquals(List.of(new Note(46, 0, 480)), transposed.lower());
+    }
+
+    @Test
     void singleNoteBecomesMelodyOnly() {
         Score score = new Score(ONE_MEASURE, List.of(new Note(60, 0, 480)));
 

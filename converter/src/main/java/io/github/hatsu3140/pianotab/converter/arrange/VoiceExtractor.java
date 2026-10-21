@@ -13,8 +13,9 @@ import java.util.TreeMap;
 /**
  * 手順2: ピアノの音からメロディとベースだけを取り出す。
  *
- * <p>今は最もシンプルな方法として、同じタイミングで鳴る音のうち
- * 一番高い音をメロディ、一番低い音をベースにしている。
+ * <p>同じタイミングで鳴り始める音のうち、一番高い音をメロディ、残りの一番低い音をベースにする。
+ * ただし、メロディがまだ伸びている間に鳴り始めた低い音はメロディにしない
+ * （伴奏の音がメロディに混ざらないようにするため）。ベースも同じように扱う。
  */
 public class VoiceExtractor {
 
@@ -26,14 +27,33 @@ public class VoiceExtractor {
 
         List<Note> melody = new ArrayList<>();
         List<Note> bass = new ArrayList<>();
-        for (List<Note> chord : notesByStart.values()) {
-            Note highest = chord.stream().max(Comparator.comparingInt(Note::pitch)).orElseThrow();
-            Note lowest = chord.stream().min(Comparator.comparingInt(Note::pitch)).orElseThrow();
-            melody.add(highest);
-            if (lowest.pitch() != highest.pitch()) {
-                bass.add(lowest);
+        Note currentMelody = null;
+        Note currentBass = null;
+        for (Map.Entry<Long, List<Note>> entry : notesByStart.entrySet()) {
+            long start = entry.getKey();
+            List<Note> chord = new ArrayList<>(entry.getValue());
+            chord.sort(Comparator.comparingInt(Note::pitch));
+
+            Note highest = chord.get(chord.size() - 1);
+            if (!isSounding(currentMelody, start) || highest.pitch() >= currentMelody.pitch()) {
+                melody.add(highest);
+                currentMelody = highest;
+                chord.remove(chord.size() - 1);
+            }
+
+            if (!chord.isEmpty()) {
+                Note lowest = chord.get(0);
+                boolean belowMelody = lowest.pitch() < currentMelody.pitch() || !isSounding(currentMelody, start);
+                if (belowMelody && (!isSounding(currentBass, start) || lowest.pitch() <= currentBass.pitch())) {
+                    bass.add(lowest);
+                    currentBass = lowest;
+                }
             }
         }
-        return new Arrangement(score.ticksPerQuarter(), melody, bass);
+        return new Arrangement(score.info(), melody, bass);
+    }
+
+    private static boolean isSounding(Note note, long tick) {
+        return note != null && note.startTick() + note.durationTicks() > tick;
     }
 }

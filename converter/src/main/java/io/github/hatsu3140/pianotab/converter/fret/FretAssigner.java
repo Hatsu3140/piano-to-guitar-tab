@@ -21,7 +21,7 @@ import java.util.TreeSet;
  * 弾きやすさは次の「コスト」の合計が小さいほど良いとする。
  * <ul>
  *   <li>同時に押さえる2音のフレットが上限（難易度で決まる。中級は4フレット）より離れていたら弾けない</li>
- *   <li>前の音からのポジション移動が大きいほど弾きにくい</li>
+ *   <li>前の音からのポジション移動が大きいほど弾きにくい。次の音までの時間が短い（8分音符より速い）ほど、さらに弾きにくい</li>
  *   <li>高いフレット（特に12フレットより上）ほど弾きにくい</li>
  *   <li>メロディがベースより低い弦にくるのは弾きにくい</li>
  * </ul>
@@ -107,8 +107,9 @@ public class FretAssigner {
                     cost[i][j] = own;
                     continue;
                 }
+                double speed = speedFactor(times[i] - times[i - 1], arrangement.info().ticksPerQuarter());
                 for (int k = 0; k < states.get(i - 1).size(); k++) {
-                    double total = cost[i - 1][k] + own + transitionCost(states.get(i - 1).get(k), state);
+                    double total = cost[i - 1][k] + own + transitionCost(states.get(i - 1).get(k), state, speed);
                     if (total < cost[i][j]) {
                         cost[i][j] = total;
                         previous[i][j] = k;
@@ -218,8 +219,16 @@ public class FretAssigner {
         return fret * FRET_COST + Math.max(0, fret - 12) * HIGH_FRET_COST;
     }
 
+    /**
+     * 移動のコストにかける倍率。4分音符以上の間があれば1倍、8分音符なら2倍、16分音符なら4倍
+     * （速いパッセージで大きく飛ぶのは難しい）
+     */
+    static double speedFactor(long gapTicks, int ticksPerQuarter) {
+        return Math.clamp((double) ticksPerQuarter / Math.max(1, gapTicks), 1.0, 4.0);
+    }
+
     /** 前のタイミングの押さえ方から今の押さえ方へ移るコスト */
-    private double transitionCost(State before, State after) {
+    private double transitionCost(State before, State after, double speed) {
         double total = 0;
         // 伸ばしている音は同じ場所を押さえ続ける（止めるのは可）
         if (after.melody() != null && !after.melody().isNew()) {
@@ -239,7 +248,7 @@ public class FretAssigner {
         int handBefore = before.handPosition();
         int handAfter = after.handPosition();
         if (handBefore > 0 && handAfter > 0) {
-            total += Math.abs(handAfter - handBefore) * moveCost;
+            total += Math.abs(handAfter - handBefore) * moveCost * speed;
         }
         return total;
     }

@@ -5,6 +5,8 @@ import io.github.hatsu3140.pianotab.converter.model.Note;
 import io.github.hatsu3140.pianotab.converter.model.Tuning;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -18,6 +20,10 @@ import java.util.List;
  * メロディは「1弦の一番高いフレット」から下の約1オクターブ半、ベースは「一番低い開放弦」から上の
  * 1オクターブ少々（レギュラー・カポなし・12フレットまでなら、メロディ A3〜E5、ベース E2〜G3）。
  *
+ * <p>それでも範囲からはみ出す音があるときは、その音だけを動かすとメロディの形が崩れる
+ * （たとえば「ラ→ソ」が7度の跳躍になる）ので、前後のまとまり（なるべく休符で区切れるところまで）を
+ * いっしょにオクターブ移動する。
+ *
  * <p>移動した結果、同じ瞬間に鳴っているベースよりメロディが低くなったら（もとはメロディの方が高かったのに）、
  * メロディが埋もれないよう、そのベースを1オクターブ下げる。下げられなければメロディを1オクターブ上げ、
  * それも無理ならそのベースを省く。もとの楽譜でメロディがベースより低い箇所はそのままにする。
@@ -30,6 +36,9 @@ public class OctavePlacer {
     static final int BASS_SPAN = 15;
 
     private static final int MAX_OCTAVES = 3;
+    private static final double OUT_OF_RANGE_COST = 10.0;
+    private static final double SWITCH_COST = 4.0;
+    private static final double PHRASE_SWITCH_COST = 1.0;
 
     private final int melodyLow;
     private final int melodyHigh;
@@ -54,12 +63,74 @@ public class OctavePlacer {
     public Arrangement place(Arrangement arrangement) {
         int melodyShift = bestShift(arrangement.melody(), melodyLow, melodyHigh);
         int bassShift = bestShift(arrangement.bass(), bassLow, bassHigh);
-        List<Note> melody = new ArrayList<>(shift(arrangement.melody(), melodyShift));
-        List<Note> bass = new ArrayList<>(shift(arrangement.bass(), bassShift));
+        int ticksPerQuarter = arrangement.info().ticksPerQuarter();
+        List<Note> melody = foldSmoothly(shift(arrangement.melody(), melodyShift), ticksPerQuarter, melodyLow, melodyHigh);
+        List<Note> bass = foldSmoothly(shift(arrangement.bass(), bassShift), ticksPerQuarter, bassLow, bassHigh);
         if (melodyShift != bassShift) {
             keepMelodyAboveBass(arrangement.melody(), melody, arrangement.bass(), bass);
         }
         return new Arrangement(arrangement.info(), melody, bass.stream().filter(note -> note != null).toList());
+    }
+
+    /**
+     * 範囲からはみ出す音を、メロディの形をなるべく崩さずにオクターブ移動する。
+     * 音ごとに「何オクターブずらすか」を DP で決める。はみ出すのは大きな減点、
+     * 前の音とずらし方が変わる（音の間隔が変わる）のも減点。休符や長い音のあとなら切り替えの減点は小さい。
+     */
+    static List<Note> foldSmoothly(List<Note> notes, int ticksPerQuarter, int low, int high) {
+        int count = notes.size();
+        if (count == 0) {
+            return new ArrayList<>(notes);
+        }
+        Integer[] order = new Integer[count];
+        for (int i = 0; i < count; i++) {
+            order[i] = i;
+        }
+        Arrays.sort(order, Comparator.comparingLong(i -> notes.get(i).startTick()));
+        int[] shifts = {0, -12, 12, -24, 24};
+        double[][] cost = new double[count][shifts.length];
+        int[][] previous = new int[count][shifts.length];
+        for (int n = 0; n < count; n++) {
+            Note note = notes.get(order[n]);
+            double switchCost = SWITCH_COST;
+            if (n > 0) {
+                Note before = notes.get(order[n - 1]);
+                long gap = note.startTick() - (before.startTick() + before.durationTicks());
+                if (gap >= ticksPerQuarter / 2 || before.durationTicks() >= ticksPerQuarter * 2L) {
+                    switchCost = PHRASE_SWITCH_COST;
+                }
+            }
+            for (int s = 0; s < shifts.length; s++) {
+                int pitch = note.pitch() + shifts[s];
+                double own = (Math.max(0, low - pitch) + Math.max(0, pitch - high)) * OUT_OF_RANGE_COST
+                        + Math.abs(shifts[s]) / 12 * 0.01;
+                if (n == 0) {
+                    cost[n][s] = own;
+                    continue;
+                }
+                cost[n][s] = Double.POSITIVE_INFINITY;
+                for (int t = 0; t < shifts.length; t++) {
+                    double total = cost[n - 1][t] + own + (s == t ? 0 : switchCost);
+                    if (total < cost[n][s]) {
+                        cost[n][s] = total;
+                        previous[n][s] = t;
+                    }
+                }
+            }
+        }
+        int best = 0;
+        for (int s = 1; s < shifts.length; s++) {
+            if (cost[count - 1][s] < cost[count - 1][best]) {
+                best = s;
+            }
+        }
+        List<Note> result = new ArrayList<>(notes);
+        for (int n = count - 1; n >= 0; n--) {
+            Note note = notes.get(order[n]);
+            result.set(order[n], withPitch(note, note.pitch() + shifts[best]));
+            best = previous[n][best];
+        }
+        return result;
     }
 
     /** 移動でメロディがベースの下に潜った箇所を直す（original* は移動前） */

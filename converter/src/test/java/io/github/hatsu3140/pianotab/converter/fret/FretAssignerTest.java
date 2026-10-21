@@ -56,16 +56,43 @@ class FretAssignerTest {
     }
 
     @Test
-    void dropsNotesWhenNoStringIsLeft() {
-        // 同時に7音は6弦のギターでは弾けないので、1音は捨てる
-        List<Note> chord = List.of(
-                new Note(64, 0, 480), new Note(62, 0, 480), new Note(60, 0, 480), new Note(59, 0, 480),
-                new Note(57, 0, 480), new Note(55, 0, 480), new Note(52, 0, 480));
-        Arrangement arrangement = new Arrangement(ONE_MEASURE, chord, List.of());
+    void choosesPositionsWithinReach() {
+        // C3 と C5 を同時に弾く。C3 を5弦3フレット、C5 を1弦8フレットにすると指が届かないので、
+        // C3 を6弦8フレットにして同じポジションで弾く
+        Arrangement arrangement = new Arrangement(ONE_MEASURE,
+                List.of(new Note(72, 0, 480)),
+                List.of(new Note(48, 0, 480)));
 
         TabScore tab = assigner.assign(arrangement);
 
-        assertEquals(6, tab.notes().size());
+        assertEquals(new TabNote(new Note(72, 0, 480), 1, 8), tab.melody().get(0));
+        assertEquals(new TabNote(new Note(48, 0, 480), 6, 8), tab.bass().get(0));
+    }
+
+    @Test
+    void dropsBassWhenItCannotBeReached() {
+        // B5 は1弦19フレットでしか出せず、F2 は6弦1フレットでしか出せない → 同時には弾けないのでベースを捨てる
+        Arrangement arrangement = new Arrangement(ONE_MEASURE,
+                List.of(new Note(83, 0, 480)),
+                List.of(new Note(41, 0, 480)));
+
+        TabScore tab = assigner.assign(arrangement);
+
+        assertEquals(1, tab.melody().size());
+        assertEquals(0, tab.bass().size());
+    }
+
+    @Test
+    void cutsHeldNoteWhenNextNoteCannotBeReached() {
+        // F2（6弦1フレット）を伸ばしている間に B5（1弦19フレット）が鳴る → F2 はそこで止める
+        Arrangement arrangement = new Arrangement(ONE_MEASURE,
+                List.of(new Note(83, 480, 480)),
+                List.of(new Note(41, 0, 1920)));
+
+        TabScore tab = assigner.assign(arrangement);
+
+        assertEquals(new TabNote(new Note(41, 0, 480), 6, 1), tab.bass().get(0));
+        assertEquals(1, tab.melody().size());
     }
 
     @Test

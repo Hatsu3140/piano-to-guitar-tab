@@ -4,7 +4,7 @@
 細かい修正は [TuxGuitar](https://github.com/helge17/tuxguitar) などのソフトで行う前提です。
 
 > まだ開発中です。MusicXML（.musicxml / .xml / .mxl）を読み込んで .gp5 を書き出すところまでできています。
-> 弾きやすい運指（フレットの選び方）や3連符への対応はこれから改善していきます。
+> 3連符への対応などはこれから改善していきます。
 
 ## 必要なもの
 
@@ -33,8 +33,8 @@ piano-to-guitar-tab/
 │   └── src/main/java/io/github/hatsu3140/pianotab/converter/
 │       ├── GuitarTabConverter.java  変換の入口（下の4手順を順に呼ぶ）
 │       ├── musicxml/   1. MusicXML の読み込み
-│       ├── arrange/    2. メロディ・ベースの抽出
-│       ├── fret/       3. 弦・フレットの割り当て
+│       ├── arrange/    2. メロディ・ベースの抽出と、弾きやすい高さへのオクターブ調整
+│       ├── fret/       3. 弦・フレットの割り当て（指が届き、移動が少ない押さえ方を選ぶ）
 │       ├── gp5/        4. Guitar Pro 5 形式で書き出し
 │       └── model/      音符や TAB 譜を表すデータ
 └── web/             Web アプリ（Spring Boot）

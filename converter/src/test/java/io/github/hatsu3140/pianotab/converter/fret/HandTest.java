@@ -26,6 +26,36 @@ class HandTest {
     }
 
     @Test
+    void definesWhichFingerPressesEachNote() {
+        Fingering fingering = new Hand(0, 4, 4, true).fingering(F_CHORD).orElseThrow();
+
+        assertEquals(1, fingering.barreFret());
+        assertEquals(2, fingering.barreTo());
+        assertEquals("人差し指 1フレット セーハ(1〜2弦) / 中指 3弦2 / 薬指 5弦3 / 小指 4弦3",
+                fingering.describe(0));
+    }
+
+    @Test
+    void prefersNotToBarreWhenFingersAreEnough() {
+        // C のコード: 人差し指 2弦1・中指 4弦2・薬指 5弦3、1弦と3弦は開放
+        List<TabNote> c = List.of(note(1, 0), note(2, 1), note(3, 0), note(4, 2), note(5, 3));
+        Fingering fingering = new Hand(0, 4, 4, true).fingering(c).orElseThrow();
+
+        assertFalse(fingering.usesBarre());
+        assertEquals("開放 1弦0 / 開放 3弦0 / 人差し指 2弦1 / 中指 4弦2 / 薬指 5弦3", fingering.describe(0));
+    }
+
+    @Test
+    void describesBarreWithCapo() {
+        // カポ2で、ネックの4フレットを1〜6弦セーハ（E の形）
+        List<TabNote> e = List.of(note(1, 4), note(2, 4), note(3, 5), note(4, 6), note(5, 6), note(6, 4));
+        Fingering fingering = new Hand(2, 4, 4, true).fingering(e).orElseThrow();
+
+        assertEquals("人差し指 4フレット セーハ(1〜6弦) / 中指 3弦5 / 薬指 5弦6 / 小指 4弦6",
+                fingering.describe(2));
+    }
+
+    @Test
     void needsBarreWhenFingersAreNotEnough() {
         Hand hand = new Hand(0, 4, 4, false);
 
@@ -50,6 +80,7 @@ class HandTest {
 
         // 人差し指 3弦5・中指 4弦6・薬指 5弦6 のあと、小指で 2弦9 は遠すぎる（薬指から3フレット）
         assertFalse(hand.canPlay(List.of(note(2, 9), note(3, 5), note(4, 6), note(5, 6))));
+        assertTrue(hand.fingering(List.of(note(2, 9), note(3, 5), note(4, 6), note(5, 6))).isEmpty());
         // 人差し指 5・中指 6・小指 9 なら届く
         assertTrue(hand.canPlay(List.of(note(2, 9), note(3, 5), note(4, 6))));
         // 2音なら人差し指と小指で4フレット離せる

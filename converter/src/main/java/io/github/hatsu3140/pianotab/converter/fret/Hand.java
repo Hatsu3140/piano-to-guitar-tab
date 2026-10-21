@@ -3,30 +3,34 @@ package io.github.hatsu3140.pianotab.converter.fret;
 import io.github.hatsu3140.pianotab.converter.model.TabNote;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
- * 左手で押さえられるかどうかの判定。同時に鳴っている音の組み合わせについて、
+ * 左手の押さえ方（運指）を実際に決めて、弾けるかどうかを判定する。
+ *
+ * <p>同時に鳴っている音それぞれに、人差し指(1)・中指(2)・薬指(3)・小指(4) のどれで押さえるか
+ * （開放弦なら指はいらない）を割り当てる。次のルールをすべて守れる割り当てがあれば弾ける。
  * <ul>
  *   <li>1本の弦で鳴らせるのは1音だけ</li>
  *   <li>押さえるフレットの幅（開放弦は除く）が上限以内</li>
- *   <li>押さえる指の数が上限以内。セーハ（人差し指で複数の弦をまとめて押さえる）は1本と数える</li>
- *   <li>指を実際に割り当てられる。フレットの低い順に人差し指・中指・薬指・小指を（飛ばしてもよいが順番は守って）
- *       割り当て、隣どうしに割り当てた指のフレットの差が「指の番号の差 + 1」以内であること。
+ *   <li>使う指の本数が上限以内。セーハは1本と数える</li>
+ *   <li>指の順番を守る: 番号の大きい指ほど同じかより高いフレットを押さえる</li>
+ *   <li>指どうしの開き: 2本の指のフレットの差は「指の番号の差 + 1」まで。
  *       たとえば中指と薬指は2フレットまで、人差し指と小指は4フレットまで離せる</li>
+ *   <li>1本の指で押さえるのは1か所だけ。ただし人差し指はセーハできる</li>
  * </ul>
- * を確かめる。フレットはカポを基準に数える。
  *
- * <p>セーハは一番低いフレットでだけ使える。人差し指を寝かせて押さえるので、セーハは1弦から
- * 一番太いセーハの弦までをまとめて押さえることになる。そのため、
+ * <p>セーハ（人差し指を寝かせて複数の弦をまとめて押さえる）は、
  * <ul>
- *   <li>その範囲に開放弦の音があると使えない（押さえてしまって鳴らない）</li>
- *   <li>セーハしたまま他の指で押さえられるのは、セーハから2フレット先まで
- *       （F や B♭ のような普通のセーハの形）</li>
+ *   <li>押さえる中で一番低いフレットでだけ使える</li>
+ *   <li>1弦から、セーハで押さえる一番太い弦までをまとめて押さえる。その範囲に開放弦の音があると使えない</li>
+ *   <li>セーハしたまま他の指で押さえられるのは、セーハから2フレット先まで（F や B♭ のような形）</li>
  * </ul>
+ * フレットはカポを基準に数える。
  */
 public class Hand {
 
@@ -37,7 +41,6 @@ public class Hand {
 
     /** セーハしたまま他の指で押さえられる、セーハからのフレットの差 */
     static final int BARRE_REACH = 2;
-    private static final int FINGER_COUNT = 4;
 
     public Hand(int capo, int maxStretch, int maxFingers, boolean barre) {
         this.capo = capo;
@@ -47,124 +50,170 @@ public class Hand {
     }
 
     public boolean canPlay(List<TabNote> notes) {
+        return fingering(notes).isPresent();
+    }
+
+    /**
+     * 押さえ方を決める。弾けなければ空。
+     * セーハしないで押さえられるならそれを、無理ならセーハする押さえ方を選ぶ。どちらも指の少ない方を選ぶ。
+     */
+    public Optional<Fingering> fingering(List<TabNote> notes) {
         Set<Integer> strings = new HashSet<>();
         int lowest = Integer.MAX_VALUE;
         int highest = Integer.MIN_VALUE;
+        List<TabNote> fretted = new ArrayList<>();
         for (TabNote note : notes) {
             if (!strings.add(note.string())) {
-                return false;
+                return Optional.empty();
             }
             int fret = relativeFret(note);
             if (fret < 0) {
-                return false;
+                return Optional.empty();
             }
             if (fret > 0) {
+                fretted.add(note);
                 lowest = Math.min(lowest, fret);
                 highest = Math.max(highest, fret);
             }
         }
-        if (highest - lowest > maxStretch) {
-            return false;
+        if (!fretted.isEmpty() && highest - lowest > maxStretch) {
+            return Optional.empty();
         }
-        if (canAssignFingers(fingerFrets(notes, false))) {
-            return true;
+        // 低いフレットから順に指を決めていく（同じフレットなら太い弦から）
+        fretted.sort(Comparator.comparingInt(this::relativeFret)
+                .thenComparing(Comparator.comparingInt(TabNote::string).reversed()));
+        Search plain = new Search(notes, fretted, false);
+        plain.run(0);
+        if (plain.best != null || !barre) {
+            return Optional.ofNullable(plain.best);
         }
-        return barre && canAssignFingers(fingerFrets(notes, true));
+        Search barred = new Search(notes, fretted, true);
+        barred.run(0);
+        return Optional.ofNullable(barred.best);
     }
 
-    /** 指で押さえる場所のフレット（低い順）。useBarre なら、セーハできるときはセーハを1か所にまとめる */
-    private List<Integer> fingerFrets(List<TabNote> notes, boolean useBarre) {
-        List<Integer> frets = new ArrayList<>();
-        boolean barred = useBarre && fingers(notes) < frettedCount(notes);
-        int lowest = Integer.MAX_VALUE;
-        for (TabNote note : notes) {
-            if (relativeFret(note) > 0) {
-                lowest = Math.min(lowest, relativeFret(note));
-            }
-        }
-        if (barred) {
-            frets.add(lowest);
-        }
-        for (TabNote note : notes) {
-            int fret = relativeFret(note);
-            if (fret > 0 && !(barred && fret == lowest)) {
-                frets.add(fret);
-            }
-        }
-        Collections.sort(frets);
-        return frets;
-    }
-
-    /** 低い順のフレットに、人差し指(1)〜小指(4)を順番を守って割り当てられるか */
-    private boolean canAssignFingers(List<Integer> frets) {
-        if (frets.size() > Math.min(maxFingers, FINGER_COUNT)) {
-            return false;
-        }
-        return assign(frets, 0, 0, 0);
-    }
-
-    private static boolean assign(List<Integer> frets, int index, int previousFinger, int previousFret) {
-        if (index == frets.size()) {
-            return true;
-        }
-        int remaining = frets.size() - index;
-        for (int finger = previousFinger + 1; finger <= FINGER_COUNT - remaining + 1; finger++) {
-            int fret = frets.get(index);
-            boolean reachable = previousFinger == 0 || fret - previousFret <= finger - previousFinger + 1;
-            if (reachable && assign(frets, index + 1, finger, fret)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private int frettedCount(List<TabNote> notes) {
-        return (int) notes.stream().filter(note -> relativeFret(note) > 0).count();
-    }
-
-    /** 押さえるのに必要な指の数 */
+    /** 押さえるのに必要な指の数（弾けないときは、押さえる音の数） */
     public int fingers(List<TabNote> notes) {
-        int fretted = 0;
-        int lowest = Integer.MAX_VALUE;
-        int highest = Integer.MIN_VALUE;
-        for (TabNote note : notes) {
-            int fret = relativeFret(note);
-            if (fret > 0) {
-                fretted++;
-                lowest = Math.min(lowest, fret);
-                highest = Math.max(highest, fret);
-            }
-        }
-        if (!barre || fretted < 2 || highest - lowest > BARRE_REACH) {
-            return fretted;
-        }
-        int atLowest = 0;
-        int thickestString = Integer.MIN_VALUE;
-        for (TabNote note : notes) {
-            if (relativeFret(note) == lowest) {
-                atLowest++;
-                thickestString = Math.max(thickestString, note.string());
-            }
-        }
-        if (atLowest < 2) {
-            return fretted;
-        }
-        for (TabNote note : notes) {
-            if (relativeFret(note) == 0 && note.string() < thickestString) {
-                return fretted; // セーハすると開放弦が鳴らなくなる
-            }
-        }
-        return fretted - atLowest + 1;
+        return fingering(notes).map(Fingering::fingerCount)
+                .orElse((int) notes.stream().filter(note -> relativeFret(note) > 0).count());
     }
 
-    /** セーハが必要か（1本ずつ押さえると指が足りないが、セーハなら足りる） */
+    /** セーハが必要か（セーハしないと押さえられないが、セーハなら押さえられる） */
     public boolean usesBarre(List<TabNote> notes) {
-        return barre && new Hand(capo, maxStretch, maxFingers, false).fingers(notes) > maxFingers
-                && fingers(notes) <= maxFingers;
+        return fingering(notes).map(Fingering::usesBarre).orElse(false);
     }
 
     /** カポを基準にしたフレット */
     public int relativeFret(TabNote note) {
         return note.fret() - capo;
+    }
+
+    /** 押さえる音に指を1つずつ割り当てて、ルールを守れる割り当てのうち指の一番少ないものを探す */
+    private final class Search {
+        private final List<TabNote> notes;
+        private final List<TabNote> fretted;
+        private final boolean useBarre;
+        private final int[] assigned;
+        /** 指ごとに押さえているフレット（0 = まだ使っていない） */
+        private final int[] fingerFret = new int[Fingering.PINKY + 1];
+        private final int[] fingerUses = new int[Fingering.PINKY + 1];
+        private Fingering best;
+
+        Search(List<TabNote> notes, List<TabNote> fretted, boolean useBarre) {
+            this.notes = notes;
+            this.fretted = fretted;
+            this.useBarre = useBarre;
+            this.assigned = new int[fretted.size()];
+        }
+
+        void run(int index) {
+            if (index == fretted.size()) {
+                consider();
+                return;
+            }
+            int fret = relativeFret(fretted.get(index));
+            for (int finger = Fingering.INDEX; finger <= Fingering.PINKY; finger++) {
+                if (canPlace(finger, fret)) {
+                    boolean first = fingerUses[finger] == 0;
+                    fingerFret[finger] = fret;
+                    fingerUses[finger]++;
+                    assigned[index] = finger;
+                    run(index + 1);
+                    fingerUses[finger]--;
+                    if (first) {
+                        fingerFret[finger] = 0;
+                    }
+                }
+            }
+        }
+
+        private boolean canPlace(int finger, int fret) {
+            if (fingerUses[finger] > 0) {
+                // 同じ指でもう1か所押さえられるのは、人差し指のセーハ（同じフレット）だけ
+                return useBarre && finger == Fingering.INDEX && fingerFret[finger] == fret;
+            }
+            for (int other = Fingering.INDEX; other <= Fingering.PINKY; other++) {
+                if (other == finger || fingerUses[other] == 0) {
+                    continue;
+                }
+                int gap = fret - fingerFret[other];
+                int fingerGap = finger - other;
+                // 指の順番（番号の大きい指ほど高いフレット）と、指どうしの開き
+                if (fingerGap > 0 ? gap < 0 || gap > fingerGap + 1 : gap > 0 || -gap > -fingerGap + 1) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void consider() {
+            int count = 0;
+            for (int finger = Fingering.INDEX; finger <= Fingering.PINKY; finger++) {
+                if (fingerUses[finger] > 0) {
+                    count++;
+                }
+            }
+            if (count > maxFingers) {
+                return;
+            }
+            int barreFret = 0;
+            int barreTo = 0;
+            if (fingerUses[Fingering.INDEX] > 1) {
+                barreFret = fingerFret[Fingering.INDEX];
+                for (int i = 0; i < fretted.size(); i++) {
+                    if (assigned[i] == Fingering.INDEX) {
+                        barreTo = Math.max(barreTo, fretted.get(i).string());
+                    }
+                }
+                if (!barreIsPossible(barreFret, barreTo)) {
+                    return;
+                }
+            } else if (useBarre) {
+                return; // セーハしない押さえ方は、もう調べてある
+            }
+            if (best != null && best.fingerCount() <= count) {
+                return;
+            }
+            List<Fingering.Placement> placements = new ArrayList<>();
+            for (TabNote note : notes) {
+                int index = fretted.indexOf(note);
+                placements.add(new Fingering.Placement(note, index < 0 ? 0 : assigned[index]));
+            }
+            best = new Fingering(List.copyOf(placements), barreFret, barreTo);
+        }
+
+        /** セーハは一番低いフレットで、1弦から barreTo 弦までに開放弦がなく、他の指が届く範囲にある */
+        private boolean barreIsPossible(int barreFret, int barreTo) {
+            for (TabNote note : notes) {
+                int fret = relativeFret(note);
+                if (note.string() <= barreTo && fret < barreFret) {
+                    return false; // セーハすると開放弦（やセーハより低い音）が鳴らない
+                }
+                if (fret > barreFret + BARRE_REACH) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 }

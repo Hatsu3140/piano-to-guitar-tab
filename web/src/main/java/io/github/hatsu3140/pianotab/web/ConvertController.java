@@ -91,11 +91,11 @@ public class ConvertController {
     }
 
     private static Tuning parseTuning(String value) {
-        return switch (value) {
-            case "STANDARD" -> Tuning.STANDARD;
-            case "DROP_D" -> Tuning.DROP_D;
-            default -> throw new IllegalArgumentException("チューニングの指定が正しくありません: " + value);
-        };
+        Tuning tuning = Tuning.PRESETS.get(value);
+        if (tuning == null) {
+            throw new IllegalArgumentException("チューニングの指定が正しくありません: " + value);
+        }
+        return tuning;
     }
 
     private static ResponseEntity<ConvertResponse> badRequest(String message) {

@@ -82,6 +82,17 @@ class ConvertControllerTest {
     }
 
     @Test
+    void acceptsOpenTunings() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "song.musicxml", "application/xml",
+                MUSIC_XML.getBytes(StandardCharsets.UTF_8));
+
+        for (String tuning : new String[] {"DADGAD", "OPEN_D", "OPEN_G", "CGDGBD"}) {
+            mockMvc.perform(multipart("/api/convert").file(file).param("tuning", tuning))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Test
     void rejectsInvalidSettings() throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "song.musicxml", "application/xml",
                 MUSIC_XML.getBytes(StandardCharsets.UTF_8));

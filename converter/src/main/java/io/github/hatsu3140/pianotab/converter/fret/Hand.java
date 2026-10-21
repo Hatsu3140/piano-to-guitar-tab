@@ -15,8 +15,13 @@ import java.util.Set;
  * </ul>
  * を確かめる。フレットはカポを基準に数える。
  *
- * <p>セーハは一番低いフレットでだけ使える。セーハする弦の間に開放弦の音があると、
- * その弦も押さえてしまうので使えない。
+ * <p>セーハは一番低いフレットでだけ使える。人差し指を寝かせて押さえるので、セーハは1弦から
+ * 一番太いセーハの弦までをまとめて押さえることになる。そのため、
+ * <ul>
+ *   <li>その範囲に開放弦の音があると使えない（押さえてしまって鳴らない）</li>
+ *   <li>セーハしたまま他の指で押さえられるのは、セーハから2フレット先まで
+ *       （F や B♭ のような普通のセーハの形）</li>
+ * </ul>
  */
 public class Hand {
 
@@ -24,6 +29,9 @@ public class Hand {
     private final int maxStretch;
     private final int maxFingers;
     private final boolean barre;
+
+    /** セーハしたまま他の指で押さえられる、セーハからのフレットの差 */
+    static final int BARRE_REACH = 2;
 
     public Hand(int capo, int maxStretch, int maxFingers, boolean barre) {
         this.capo = capo;
@@ -59,31 +67,31 @@ public class Hand {
     public int fingers(List<TabNote> notes) {
         int fretted = 0;
         int lowest = Integer.MAX_VALUE;
+        int highest = Integer.MIN_VALUE;
         for (TabNote note : notes) {
             int fret = relativeFret(note);
             if (fret > 0) {
                 fretted++;
                 lowest = Math.min(lowest, fret);
+                highest = Math.max(highest, fret);
             }
         }
-        if (!barre || fretted < 2) {
+        if (!barre || fretted < 2 || highest - lowest > BARRE_REACH) {
             return fretted;
         }
         int atLowest = 0;
-        int firstString = Integer.MAX_VALUE;
-        int lastString = Integer.MIN_VALUE;
+        int thickestString = Integer.MIN_VALUE;
         for (TabNote note : notes) {
             if (relativeFret(note) == lowest) {
                 atLowest++;
-                firstString = Math.min(firstString, note.string());
-                lastString = Math.max(lastString, note.string());
+                thickestString = Math.max(thickestString, note.string());
             }
         }
         if (atLowest < 2) {
             return fretted;
         }
         for (TabNote note : notes) {
-            if (relativeFret(note) == 0 && note.string() > firstString && note.string() < lastString) {
+            if (relativeFret(note) == 0 && note.string() < thickestString) {
                 return fretted; // セーハすると開放弦が鳴らなくなる
             }
         }

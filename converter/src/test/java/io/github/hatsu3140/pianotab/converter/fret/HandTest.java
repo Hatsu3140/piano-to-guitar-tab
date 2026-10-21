@@ -34,6 +34,25 @@ class HandTest {
     }
 
     @Test
+    void cannotReachFarBeyondBarre() {
+        // 1フレットを2〜4弦でセーハしたまま、1弦と6弦の4フレット・5弦3フレットは押さえられない
+        // （4フレットまで指を伸ばすとセーハが保てない）
+        List<TabNote> notes = List.of(note(1, 4), note(2, 1), note(3, 1), note(4, 1), note(5, 3), note(6, 4));
+        Hand hand = new Hand(0, 4, 4, true);
+
+        assertEquals(6, hand.fingers(notes));
+        assertFalse(hand.canPlay(notes));
+    }
+
+    @Test
+    void barreCoversStringsUpToTheFirst() {
+        // 2・3弦の1フレットをセーハすると1弦も押さえるので、1弦の開放は鳴らせない
+        List<TabNote> notes = List.of(note(1, 0), note(2, 1), note(3, 1));
+
+        assertEquals(2, new Hand(0, 4, 4, true).fingers(notes));
+    }
+
+    @Test
     void cannotBarreOverOpenString() {
         // 1弦と3弦の1フレットの間に、開放弦の2弦がある → セーハすると2弦が鳴らない
         List<TabNote> notes = List.of(note(1, 1), note(2, 0), note(3, 1));

@@ -19,6 +19,14 @@ class FretAssignerTest {
     private final FretAssigner assigner = new FretAssigner(Tuning.STANDARD);
 
     @Test
+    void fastPassagesMakeMovingHarder() {
+        assertEquals(1.0, FretAssigner.speedFactor(960, 480));
+        assertEquals(1.0, FretAssigner.speedFactor(480, 480));
+        assertEquals(2.0, FretAssigner.speedFactor(240, 480));
+        assertEquals(4.0, FretAssigner.speedFactor(60, 480));
+    }
+
+    @Test
     void openStringNotesUseFretZero() {
         // E4 は 1弦の開放、E2 は 6弦の開放
         Arrangement arrangement = new Arrangement(ONE_MEASURE,

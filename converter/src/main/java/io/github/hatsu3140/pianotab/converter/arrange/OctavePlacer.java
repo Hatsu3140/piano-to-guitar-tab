@@ -4,6 +4,9 @@ import io.github.hatsu3140.pianotab.converter.model.Arrangement;
 import io.github.hatsu3140.pianotab.converter.model.Note;
 import io.github.hatsu3140.pianotab.converter.model.Tuning;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -16,6 +19,14 @@ import java.util.List;
  * <p>弾きやすい範囲はチューニング・カポ・使うフレットの上限から決める。
  * メロディは「1弦の一番高いフレット」から下の約1オクターブ半、ベースは「一番低い開放弦」から上の
  * 1オクターブ少々（レギュラー・カポなし・12フレットまでなら、メロディ A3〜E5、ベース E2〜G3）。
+ *
+ * <p>それでも範囲からはみ出す音があるときは、その音だけを動かすとメロディの形が崩れる
+ * （たとえば「ラ→ソ」が7度の跳躍になる）ので、前後のまとまり（なるべく休符で区切れるところまで）を
+ * いっしょにオクターブ移動する。
+ *
+ * <p>移動した結果、同じ瞬間に鳴っているベースよりメロディが低くなったら（もとはメロディの方が高かったのに）、
+ * メロディが埋もれないよう、そのベースを1オクターブ下げる。下げられなければメロディを1オクターブ上げ、
+ * それも無理ならそのベースを省く。もとの楽譜でメロディがベースより低い箇所はそのままにする。
  */
 public class OctavePlacer {
 
@@ -25,9 +36,18 @@ public class OctavePlacer {
     static final int BASS_SPAN = 15;
 
     private static final int MAX_OCTAVES = 3;
+    /** 弾きやすいメロディの高さの目安（1弦のこのフレットまで） */
+    static final int COMFORTABLE_FRET = 9;
+    /** 範囲からはみ出すのは、弾きやすい高さを超えるより10倍悪い */
+    private static final int RANGE_WEIGHT = 10;
+    private static final double OUT_OF_RANGE_COST = 10.0;
+    private static final double SWITCH_COST = 4.0;
+    private static final double PHRASE_SWITCH_COST = 1.0;
 
     private final int melodyLow;
     private final int melodyHigh;
+    /** メロディを置きたい高さの上限。高いフレットまで使える上級でも、なるべくこの下に置く */
+    private final int comfortableHigh;
     private final int bassLow;
     private final int bassHigh;
 
@@ -41,26 +61,133 @@ public class OctavePlacer {
      */
     public OctavePlacer(Tuning tuning, int capo, int maxFret) {
         this.melodyHigh = tuning.highestPitch() + capo + maxFret;
+        this.comfortableHigh = tuning.highestPitch() + capo + Math.min(maxFret, COMFORTABLE_FRET);
         this.melodyLow = melodyHigh - MELODY_SPAN;
         this.bassLow = tuning.lowestPitch() + capo;
         this.bassHigh = bassLow + BASS_SPAN;
     }
 
     public Arrangement place(Arrangement arrangement) {
-        int melodyShift = bestShift(arrangement.melody(), melodyLow, melodyHigh);
+        int melodyShift = bestShift(arrangement.melody(), melodyLow, melodyHigh, comfortableHigh);
         int bassShift = bestShift(arrangement.bass(), bassLow, bassHigh);
-        return new Arrangement(arrangement.info(),
-                shift(arrangement.melody(), melodyShift),
-                shift(arrangement.bass(), bassShift));
+        int ticksPerQuarter = arrangement.info().ticksPerQuarter();
+        List<Note> melody = foldSmoothly(shift(arrangement.melody(), melodyShift), ticksPerQuarter, melodyLow, melodyHigh,
+                comfortableHigh);
+        List<Note> bass = foldSmoothly(shift(arrangement.bass(), bassShift), ticksPerQuarter, bassLow, bassHigh, bassHigh);
+        if (melodyShift != bassShift) {
+            keepMelodyAboveBass(arrangement.melody(), melody, arrangement.bass(), bass);
+        }
+        return new Arrangement(arrangement.info(), melody, bass.stream().filter(note -> note != null).toList());
+    }
+
+    /**
+     * 範囲からはみ出す音を、メロディの形をなるべく崩さずにオクターブ移動する。
+     * 音ごとに「何オクターブずらすか」を DP で決める。はみ出すのは大きな減点、
+     * 前の音とずらし方が変わる（音の間隔が変わる）のも減点。休符や長い音のあとなら切り替えの減点は小さい。
+     * 弾きやすい高さ（comfortableHigh）を超えるのも軽く減点するので、高すぎるフレーズは丸ごと下がる。
+     */
+    static List<Note> foldSmoothly(List<Note> notes, int ticksPerQuarter, int low, int high, int comfortableHigh) {
+        int count = notes.size();
+        if (count == 0) {
+            return new ArrayList<>(notes);
+        }
+        Integer[] order = new Integer[count];
+        for (int i = 0; i < count; i++) {
+            order[i] = i;
+        }
+        Arrays.sort(order, Comparator.comparingLong(i -> notes.get(i).startTick()));
+        int[] shifts = {0, -12, 12, -24, 24};
+        double[][] cost = new double[count][shifts.length];
+        int[][] previous = new int[count][shifts.length];
+        for (int n = 0; n < count; n++) {
+            Note note = notes.get(order[n]);
+            double switchCost = SWITCH_COST;
+            if (n > 0) {
+                Note before = notes.get(order[n - 1]);
+                long gap = note.startTick() - (before.startTick() + before.durationTicks());
+                if (gap >= ticksPerQuarter / 2 || before.durationTicks() >= ticksPerQuarter * 2L) {
+                    switchCost = PHRASE_SWITCH_COST;
+                }
+            }
+            for (int s = 0; s < shifts.length; s++) {
+                int pitch = note.pitch() + shifts[s];
+                double own = (Math.max(0, low - pitch) + Math.max(0, pitch - high)) * OUT_OF_RANGE_COST
+                        + Math.max(0, pitch - comfortableHigh) * OUT_OF_RANGE_COST / RANGE_WEIGHT
+                        + Math.abs(shifts[s]) / 12 * 0.01;
+                if (n == 0) {
+                    cost[n][s] = own;
+                    continue;
+                }
+                cost[n][s] = Double.POSITIVE_INFINITY;
+                for (int t = 0; t < shifts.length; t++) {
+                    double total = cost[n - 1][t] + own + (s == t ? 0 : switchCost);
+                    if (total < cost[n][s]) {
+                        cost[n][s] = total;
+                        previous[n][s] = t;
+                    }
+                }
+            }
+        }
+        int best = 0;
+        for (int s = 1; s < shifts.length; s++) {
+            if (cost[count - 1][s] < cost[count - 1][best]) {
+                best = s;
+            }
+        }
+        List<Note> result = new ArrayList<>(notes);
+        for (int n = count - 1; n >= 0; n--) {
+            Note note = notes.get(order[n]);
+            result.set(order[n], withPitch(note, note.pitch() + shifts[best]));
+            best = previous[n][best];
+        }
+        return result;
+    }
+
+    /** 移動でメロディがベースの下に潜った箇所を直す（original* は移動前） */
+    private void keepMelodyAboveBass(List<Note> originalMelody, List<Note> melody,
+                                     List<Note> originalBass, List<Note> bass) {
+        for (int m = 0; m < melody.size(); m++) {
+            for (int b = 0; b < bass.size(); b++) {
+                Note bassNote = bass.get(b);
+                Note melodyNote = melody.get(m);
+                if (bassNote == null || !overlaps(melodyNote, bassNote) || melodyNote.pitch() > bassNote.pitch()
+                        || originalMelody.get(m).pitch() <= originalBass.get(b).pitch()) {
+                    continue;
+                }
+                if (bassNote.pitch() - 12 >= bassLow) {
+                    bass.set(b, withPitch(bassNote, bassNote.pitch() - 12));
+                } else if (melodyNote.pitch() + 12 <= melodyHigh) {
+                    melody.set(m, withPitch(melodyNote, melodyNote.pitch() + 12));
+                } else {
+                    bass.set(b, null);
+                }
+            }
+        }
+    }
+
+    private static boolean overlaps(Note a, Note b) {
+        return a.startTick() < b.startTick() + b.durationTicks() && b.startTick() < a.startTick() + a.durationTicks();
+    }
+
+    private static Note withPitch(Note note, int pitch) {
+        return new Note(pitch, note.startTick(), note.durationTicks());
     }
 
     /** はみ出す量が一番少ない移動量（半音単位、12の倍数）。同じなら移動の少ない方を選ぶ */
     static int bestShift(List<Note> notes, int low, int high) {
+        return bestShift(notes, low, high, high);
+    }
+
+    /**
+     * low〜high からはみ出す量が一番少ない移動量。comfortableHigh を超える量も（軽く）減点し、
+     * 収まる高さが複数あるときは弾きやすい低めの方を選ぶ
+     */
+    static int bestShift(List<Note> notes, int low, int high, int comfortableHigh) {
         int best = 0;
-        long bestCost = outOfRange(notes, 0, low, high);
+        long bestCost = shiftCost(notes, 0, low, high, comfortableHigh);
         for (int octaves = 1; octaves <= MAX_OCTAVES; octaves++) {
             for (int shift : new int[] {-12 * octaves, 12 * octaves}) {
-                long cost = outOfRange(notes, shift, low, high);
+                long cost = shiftCost(notes, shift, low, high, comfortableHigh);
                 if (cost < bestCost) {
                     best = shift;
                     bestCost = cost;
@@ -68,6 +195,10 @@ public class OctavePlacer {
             }
         }
         return best;
+    }
+
+    private static long shiftCost(List<Note> notes, int shift, int low, int high, int comfortableHigh) {
+        return outOfRange(notes, shift, low, high) * RANGE_WEIGHT + outOfRange(notes, shift, low, comfortableHigh);
     }
 
     private static long outOfRange(List<Note> notes, int shift, int low, int high) {

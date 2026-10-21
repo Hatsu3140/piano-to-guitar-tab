@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Voice</part-name></score-part>
+    <score-part id="P2"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <!-- 歌: E5 を2分音符で2つ（歌詞つき） -->
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>2</duration><lyric><text>ら</text></lyric></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><lyric><text>ら</text></lyric></note>
+    </measure>
+  </part>
+  <!-- ピアノ: 右手は歌より高い G5 の全音符、左手は C3 の全音符。1拍目に p、3拍目に f -->
+  <part id="P2">
+    <measure number="1">
+      <attributes><divisions>1</divisions><staves>2</staves></attributes>
+      <direction><direction-type><dynamics><p/></dynamics></direction-type><staff>1</staff></direction>
+      <note><pitch><step>G</step><octave>5</octave></pitch><duration>4</duration><staff>1</staff></note>
+      <backup><duration>2</duration></backup>
+      <direction><direction-type><dynamics><f/></dynamics></direction-type><staff>1</staff></direction>
+      <backup><duration>2</duration></backup>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>4</duration><staff>2</staff></note>
+    </measure>
+  </part>
+</score-partwise>

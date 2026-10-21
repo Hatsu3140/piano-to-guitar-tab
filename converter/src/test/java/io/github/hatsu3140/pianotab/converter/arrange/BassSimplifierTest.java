@@ -23,14 +23,32 @@ class BassSimplifierTest {
     void keepsOnlyMeasureStartsForBeginner() {
         Arrangement result = new BassSimplifier(BassRhythm.MEASURE).simplify(ARRANGEMENT);
 
-        assertEquals(List.of(new Note(40, 0, 240)), result.bass());
+        // 残した音は小節の終わりまで響かせる
+        assertEquals(List.of(new Note(40, 0, 1920)), result.bass());
     }
 
     @Test
     void keepsOnlyBeatStartsForIntermediate() {
         Arrangement result = new BassSimplifier(BassRhythm.BEAT).simplify(ARRANGEMENT);
 
-        assertEquals(List.of(new Note(40, 0, 240), new Note(52, 480, 240)), result.bass());
+        assertEquals(List.of(new Note(40, 0, 480), new Note(52, 480, 1440)), result.bass());
+    }
+
+    @Test
+    void letsEveryBassNoteRingUntilTheNextForAdvanced() {
+        Arrangement result = new BassSimplifier(BassRhythm.ALL).simplify(ARRANGEMENT);
+
+        assertEquals(List.of(new Note(40, 0, 240), new Note(47, 240, 240), new Note(52, 480, 1440)), result.bass());
+    }
+
+    @Test
+    void keepsLongBassNoteLength() {
+        // 次のベース音より長い音は、そのまま（重なる分はフレット決めのときに切れる）
+        Arrangement arrangement = new Arrangement(ONE_MEASURE, List.of(), List.of(new Note(40, 0, 1920)));
+
+        Arrangement result = new BassSimplifier(BassRhythm.BEAT).simplify(arrangement);
+
+        assertEquals(List.of(new Note(40, 0, 1920)), result.bass());
     }
 
     @Test
@@ -50,6 +68,6 @@ class BassSimplifierTest {
 
         Arrangement result = new BassSimplifier(BassRhythm.BEAT).simplify(arrangement);
 
-        assertEquals(List.of(new Note(40, 0, 240), new Note(45, 720, 240)), result.bass());
+        assertEquals(List.of(new Note(40, 0, 720), new Note(45, 720, 720)), result.bass());
     }
 }

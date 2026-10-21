@@ -1,5 +1,7 @@
 package io.github.hatsu3140.pianotab.converter.musicxml;
 
+import io.github.hatsu3140.pianotab.converter.model.Dynamic;
+import io.github.hatsu3140.pianotab.converter.model.DynamicLevel;
 import io.github.hatsu3140.pianotab.converter.model.Measure;
 import io.github.hatsu3140.pianotab.converter.model.Note;
 import io.github.hatsu3140.pianotab.converter.model.Score;
@@ -37,6 +39,33 @@ class MusicXmlParserTest {
                 new Note(55, 0, 960),      // G3（C3 と同時の和音）
                 new Note(42, 960, 960)),   // F#2
                 score.notes());
+    }
+
+    @Test
+    void separatesVocalAndPianoStaves() throws Exception {
+        Score score = parse(readResource("/vocal-and-piano.musicxml"));
+
+        assertEquals(List.of(new Note(76, 0, 960), new Note(74, 960, 960)), score.vocal());
+        assertEquals(List.of(new Note(79, 0, 1920)), score.upper());
+        assertEquals(List.of(new Note(48, 0, 1920)), score.lower());
+    }
+
+    @Test
+    void readsDynamics() throws Exception {
+        Score score = parse(readResource("/vocal-and-piano.musicxml"));
+
+        assertEquals(List.of(new Dynamic(0, DynamicLevel.P), new Dynamic(960, DynamicLevel.F)), score.info().dynamics());
+        assertEquals(DynamicLevel.P, score.info().dynamicAt(480));
+        assertEquals(DynamicLevel.F, score.info().dynamicAt(1000));
+    }
+
+    @Test
+    void separatesHandsOfPiano() throws Exception {
+        Score score = parse(readResource("/two-hands.musicxml"));
+
+        assertEquals(4, score.upper().size());
+        assertEquals(3, score.lower().size());
+        assertEquals(List.of(), score.vocal());
     }
 
     @Test

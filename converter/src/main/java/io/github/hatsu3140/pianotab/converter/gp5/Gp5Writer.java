@@ -1,5 +1,6 @@
 package io.github.hatsu3140.pianotab.converter.gp5;
 
+import io.github.hatsu3140.pianotab.converter.model.DynamicLevel;
 import io.github.hatsu3140.pianotab.converter.model.Measure;
 import io.github.hatsu3140.pianotab.converter.model.SongInfo;
 import io.github.hatsu3140.pianotab.converter.model.TabNote;
@@ -11,14 +12,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * 手順4: TAB 譜を Guitar Pro 5 形式（.gp5）のバイト列にする。
  *
  * <p>ギター1トラックで、声部1にメロディ、声部2にベースを入れる。
- * リズムは16分音符単位にそろえる（3連符などは近い位置に寄せられる）。
- * TODO: 3連符への対応。
+ * リズムは16分音符単位か、8分音符の3連符単位にそろえる（5連符などは近い位置に寄せる）。
+ * 強弱記号があれば、音の強さとして書く。
  *
  * <p>カポを付けたときは、フレットはカポの分を足したネック上の実際の番号で書き、
  * トラック名と曲の最初の拍に「Capo N」と書く（Guitar Pro のカポ設定は使わない）。
@@ -62,8 +66,8 @@ public class Gp5Writer {
         List<List<Beat>> melodyBeats = rhythm.toBeats(tabScore.melody(), measures);
         List<List<Beat>> bassBeats = rhythm.toBeats(tabScore.bass(), measures);
         for (int i = 0; i < measures.size(); i++) {
-            writeVoice(out, melodyBeats.get(i), false, i == 0 ? capoText : null);
-            writeVoice(out, bassBeats.get(i), true, null);
+            writeVoice(out, melodyBeats.get(i), false, i == 0 ? capoText : null, info);
+            writeVoice(out, bassBeats.get(i), true, null, info);
             out.writeByte(0); // 改行なし
         }
         return out.toByteArray();
@@ -121,7 +125,8 @@ public class Gp5Writer {
 
     private static void writeMeasureHeaders(LittleEndianWriter out, List<Measure> measures, int ticksPerQuarter) {
         Measure previous = null;
-        for (Measure measure : measures) {
+        for (Measure original : measures) {
+            Measure measure = fitTimeSignature(original, ticksPerQuarter);
             if (previous != null) {
                 out.skip(1);
             }
@@ -141,6 +146,23 @@ public class Gp5Writer {
             out.writeByte(0); // ハネ（シャッフル）なし
             previous = measure;
         }
+    }
+
+    /**
+     * 拍子記号より中身が長い小節（古い楽譜で 4/4 と書いて8拍ある小節など）は、
+     * 中身に合わせた拍子にする（8拍なら 8/4）。そうしないと Guitar Pro で小節からはみ出す。
+     */
+    static Measure fitTimeSignature(Measure measure, int ticksPerQuarter) {
+        long beatLength = (long) ticksPerQuarter * 4 / measure.beatType();
+        long signatureLength = beatLength * measure.beats();
+        if (measure.lengthTicks() <= signatureLength || measure.lengthTicks() % beatLength != 0) {
+            return measure;
+        }
+        int beats = (int) (measure.lengthTicks() / beatLength);
+        if (beats > 127) {
+            return measure;
+        }
+        return new Measure(measure.startTick(), measure.lengthTicks(), beats, measure.beatType());
     }
 
     /** 8分音符の連桁（はた）のまとめ方。表示だけに使われる */
@@ -188,7 +210,7 @@ public class Gp5Writer {
 
     /** @param firstBeatText 最初の拍に付ける文字（なければ null） */
     private static void writeVoice(LittleEndianWriter out, List<Beat> beats, boolean isSecondVoice,
-                                   String firstBeatText) {
+                                   String firstBeatText, SongInfo info) {
         boolean hasNotes = beats.stream().anyMatch(beat -> beat.note() != null);
         if (isSecondVoice && !hasNotes) {
             // 音のない第2声部は休符も書かず「空」にする
@@ -202,14 +224,17 @@ public class Gp5Writer {
         }
         out.writeInt(beats.size());
         for (int i = 0; i < beats.size(); i++) {
-            writeBeat(out, beats.get(i), i == 0 ? firstBeatText : null);
+            writeBeat(out, beats.get(i), i == 0 ? firstBeatText : null, info);
         }
     }
 
-    private static void writeBeat(LittleEndianWriter out, Beat beat, String text) {
+    private static void writeBeat(LittleEndianWriter out, Beat beat, String text, SongInfo info) {
         int flags = beat.duration().dotted() ? 0x01 : 0x00;
         if (text != null) {
             flags |= 0x04;
+        }
+        if (beat.duration().triplet()) {
+            flags |= 0x20;
         }
         if (beat.note() == null) {
             flags |= 0x40;
@@ -219,6 +244,9 @@ public class Gp5Writer {
             out.writeByte(0x02); // 休符
         }
         out.writeByte(beat.duration().value());
+        if (beat.duration().triplet()) {
+            out.writeInt(3); // 3連符
+        }
         if (text != null) {
             out.intByteSizeString(text);
         }
@@ -226,47 +254,72 @@ public class Gp5Writer {
             out.writeByte(0);
         } else {
             TabNote note = beat.note();
+            // 強さ。Guitar Pro では 1 = ppp 〜 8 = fff で、書かなければ f になる
+            DynamicLevel level = beat.tied() ? null : info.dynamicAt(note.note().startTick());
+            boolean writeDynamic = level != null && level != DynamicLevel.F;
             out.writeByte(1 << (7 - note.string()));
-            out.writeByte(0x20); // 音の種類とフレットを書く
+            out.writeByte(0x20 | (writeDynamic ? 0x10 : 0)); // 音の種類とフレット（と強さ）を書く
             out.writeByte(beat.tied() ? 2 : 1); // 2 = タイで前の音から続く, 1 = 普通の音
+            if (writeDynamic) {
+                out.writeByte(level.ordinal() + 1);
+            }
             out.writeByte(note.fret());
             out.writeByte(0);
         }
         out.writeShort(0);
     }
 
-    /** Guitar Pro の音符の長さ。value: -2 = 全音符, -1 = 2分, 0 = 4分, 1 = 8分, 2 = 16分 */
-    record Duration(int value, boolean dotted) {
+    /**
+     * Guitar Pro の音符の長さ。value: -2 = 全音符, -1 = 2分, 0 = 4分, 1 = 8分, 2 = 16分。
+     * triplet が true なら3連符（3つで value の音符2つ分の長さ）
+     */
+    record Duration(int value, boolean dotted, boolean triplet) {
+        Duration(int value, boolean dotted) {
+            this(value, dotted, false);
+        }
     }
 
     /** 1拍分（1つの音または休符） */
     record Beat(Duration duration, TabNote note, boolean tied) {
     }
 
-    /** 音の並びを、小節ごとの Guitar Pro の拍の並びに変換する */
+    /**
+     * 音の並びを、小節ごとの Guitar Pro の拍の並びに変換する。
+     *
+     * <p>リズムは、4分音符1つ分の区間ごとに「16分音符単位」か「3連符単位」のどちらかにそろえる。
+     * 区間の中の音の位置が3連符の位置（4分音符の 1/3, 2/3）に近ければ3連符にする。
+     */
     static final class Rhythm {
-        private final long grid;
-        private final long[] lengths;
-        private final Duration[] durations;
+        private final long quarter;
+        private final long straightGrid;
+        private final long tripletGrid;
+        private final long[] straightLengths;
+        private final Duration[] straightDurations;
+        private final long[] tripletLengths;
+        private final Duration[] tripletDurations;
 
         Rhythm(int ticksPerQuarter) {
-            long quarter = ticksPerQuarter;
-            this.grid = quarter / 4; // 16分音符
-            this.lengths = new long[] {
+            this.quarter = ticksPerQuarter;
+            this.straightGrid = quarter / 4; // 16分音符
+            this.tripletGrid = quarter / 3; // 8分音符の3連符
+            this.straightLengths = new long[] {
                     quarter * 4, quarter * 3, quarter * 2, quarter * 3 / 2,
                     quarter, quarter * 3 / 4, quarter / 2, quarter / 4};
-            this.durations = new Duration[] {
+            this.straightDurations = new Duration[] {
                     new Duration(-2, false), new Duration(-1, true), new Duration(-1, false), new Duration(0, true),
                     new Duration(0, false), new Duration(1, true), new Duration(1, false), new Duration(2, false)};
+            this.tripletLengths = new long[] {quarter * 2 / 3, quarter / 3};
+            this.tripletDurations = new Duration[] {new Duration(0, false, true), new Duration(1, false, true)};
         }
 
         List<List<Beat>> toBeats(List<TabNote> notes, List<Measure> measures) {
-            List<Event> events = toEvents(notes);
+            Grid grid = new Grid(notes, measures);
+            List<Event> events = toEvents(notes, grid);
             List<List<Beat>> result = new ArrayList<>();
             int eventIndex = 0;
             for (Measure measure : measures) {
-                long measureStart = quantize(measure.startTick());
-                long measureEnd = quantize(measure.startTick() + measure.lengthTicks());
+                long measureStart = grid.measureStart(measure);
+                long measureEnd = grid.measureEnd(measure);
                 while (eventIndex < events.size() && events.get(eventIndex).end() <= measureStart) {
                     eventIndex++;
                 }
@@ -277,25 +330,28 @@ public class Gp5Writer {
                     Event event = events.get(i);
                     long start = Math.max(event.start(), measureStart);
                     long end = Math.min(event.end(), measureEnd);
-                    addBeats(beats, start - cursor, null, false);
+                    addBeats(beats, cursor, start, null, false, grid);
                     // 前の小節から続いている音はタイにする
-                    addBeats(beats, end - start, event.note(), event.start() < measureStart);
+                    addBeats(beats, start, end, event.note(), event.start() < measureStart, grid);
                     cursor = end;
                 }
-                addBeats(beats, measureEnd - cursor, null, false);
+                addBeats(beats, cursor, measureEnd, null, false, grid);
                 result.add(beats);
             }
             return result;
         }
 
-        /** 音の開始・終了を16分音符単位にそろえ、重なりをなくす */
-        private List<Event> toEvents(List<TabNote> notes) {
+        /** 音の開始・終了をそろえ、重なりをなくす */
+        private List<Event> toEvents(List<TabNote> notes, Grid grid) {
             List<TabNote> sorted = new ArrayList<>(notes);
             sorted.sort(Comparator.comparingLong(note -> note.note().startTick()));
             List<Event> events = new ArrayList<>();
             for (TabNote note : sorted) {
-                long start = quantize(note.note().startTick());
-                long end = Math.max(start + grid, quantize(note.note().startTick() + note.note().durationTicks()));
+                long start = grid.quantize(note.note().startTick());
+                long end = grid.quantize(note.note().startTick() + note.note().durationTicks());
+                if (end <= start) {
+                    end = grid.nextPoint(start);
+                }
                 if (!events.isEmpty()) {
                     Event previous = events.get(events.size() - 1);
                     if (previous.start() == start) {
@@ -310,11 +366,40 @@ public class Gp5Writer {
             return events;
         }
 
-        /** 長さ length を、書ける音符の長さの組み合わせに分けて追加する */
-        private void addBeats(List<Beat> beats, long length, TabNote note, boolean tiedFromPrevious) {
+        /**
+         * from から to までを、書ける音符の長さの組み合わせに分けて追加する。
+         * 3連符の区間は3連符の長さで、それ以外は普通の長さで分ける。
+         */
+        private void addBeats(List<Beat> beats, long from, long to, TabNote note, boolean tiedFromPrevious,
+                              Grid grid) {
             boolean tied = tiedFromPrevious;
+            long runStart = from;
+            boolean runIsTriplet = false;
+            long position = from;
+            while (position < to) {
+                Grid.Window window = grid.windowAt(position);
+                long pieceEnd = Math.min(to, window.end());
+                // 区間を丸ごと使うなら普通の4分音符でよいので、3連符にするのは区間の一部だけのとき
+                boolean triplet = window.triplet() && !(position == window.start() && pieceEnd == window.end());
+                if (position > runStart && triplet != runIsTriplet) {
+                    tied = addRun(beats, position - runStart, runIsTriplet, note, tied);
+                    runStart = position;
+                }
+                runIsTriplet = triplet;
+                position = pieceEnd;
+            }
+            if (to > runStart) {
+                addRun(beats, to - runStart, runIsTriplet, note, tied);
+            }
+        }
+
+        /** 同じ種類（普通 / 3連符）の長さ length を音符に分けて追加する。追加したら true（次はタイ）を返す */
+        private boolean addRun(List<Beat> beats, long length, boolean triplet, TabNote note, boolean tied) {
+            long[] lengths = triplet ? tripletLengths : straightLengths;
+            Duration[] durations = triplet ? tripletDurations : straightDurations;
+            long smallest = lengths[lengths.length - 1];
             long remaining = length;
-            for (int i = 0; i < lengths.length && remaining >= grid; ) {
+            for (int i = 0; i < lengths.length && remaining >= smallest; ) {
                 if (lengths[i] <= remaining) {
                     beats.add(new Beat(durations[i], note, note != null && tied));
                     remaining -= lengths[i];
@@ -323,13 +408,87 @@ public class Gp5Writer {
                     i++;
                 }
             }
-        }
-
-        private long quantize(long tick) {
-            return Math.round((double) tick / grid) * grid;
+            return tied;
         }
 
         private record Event(long start, long end, TabNote note) {
+        }
+
+        /** 4分音符1つ分ずつの区間と、それぞれを3連符にするかどうか */
+        private final class Grid {
+            private final TreeMap<Long, Window> windows = new TreeMap<>();
+
+            record Window(long start, long end, boolean triplet) {
+            }
+
+            Grid(List<TabNote> notes, List<Measure> measures) {
+                for (Measure measure : measures) {
+                    long measureEnd = measureEnd(measure);
+                    for (long start = measureStart(measure); start < measureEnd; start += quarter) {
+                        long end = Math.min(start + quarter, measureEnd);
+                        windows.put(start, new Window(start, end, false));
+                    }
+                }
+                // 区間ごとに、音の位置が16分音符と3連符のどちらに近いかを比べる
+                Map<Long, long[]> errors = new HashMap<>();
+                for (TabNote note : notes) {
+                    long start = note.note().startTick();
+                    for (long tick : new long[] {start, start + note.note().durationTicks()}) {
+                        Map.Entry<Long, Window> entry = windows.floorEntry(tick);
+                        if (entry == null || tick >= entry.getValue().end()) {
+                            continue;
+                        }
+                        long offset = tick - entry.getKey();
+                        long[] error = errors.computeIfAbsent(entry.getKey(), key -> new long[2]);
+                        error[0] += distanceToGrid(offset, straightGrid);
+                        error[1] += distanceToGrid(offset, tripletGrid);
+                    }
+                }
+                errors.forEach((start, error) -> {
+                    Window window = windows.get(start);
+                    if (error[1] < error[0] && window.end() - window.start() == quarter) {
+                        windows.put(start, new Window(window.start(), window.end(), true));
+                    }
+                });
+            }
+
+            long measureStart(Measure measure) {
+                return Math.round((double) measure.startTick() / straightGrid) * straightGrid;
+            }
+
+            long measureEnd(Measure measure) {
+                return Math.round((double) (measure.startTick() + measure.lengthTicks()) / straightGrid) * straightGrid;
+            }
+
+            Window windowAt(long tick) {
+                Map.Entry<Long, Window> entry = windows.floorEntry(tick);
+                if (entry == null || tick >= entry.getValue().end()) {
+                    // 小節の外（最後の小節より後など）は普通の区間として扱う
+                    long start = Math.floorDiv(tick, quarter) * quarter;
+                    return new Window(start, start + quarter, false);
+                }
+                return entry.getValue();
+            }
+
+            /** 区間に合わせて、一番近いリズムの位置にそろえる */
+            long quantize(long tick) {
+                Window window = windowAt(tick);
+                long grid = window.triplet() ? tripletGrid : straightGrid;
+                long snapped = window.start() + Math.round((double) (tick - window.start()) / grid) * grid;
+                return Math.min(snapped, window.end());
+            }
+
+            /** tick の次のリズムの位置 */
+            long nextPoint(long tick) {
+                Window window = windowAt(tick);
+                long grid = window.triplet() ? tripletGrid : straightGrid;
+                return Math.min(tick + grid, window.end());
+            }
+
+            private static long distanceToGrid(long offset, long grid) {
+                long remainder = offset % grid;
+                return Math.min(remainder, grid - remainder);
+            }
         }
     }
 

@@ -50,4 +50,31 @@ class VoiceExtractorTest {
         assertEquals(List.of(new Note(72, 0, 960)), arrangement.melody());
         assertEquals(List.of(new Note(60, 0, 240), new Note(67, 240, 240)), arrangement.bass());
     }
+
+    @Test
+    void usesVocalStaffForMelody() {
+        // 歌（E5, D5）より右手（G5）が高くても、メロディは歌から取る。ベースは左手
+        Score score = new Score(ONE_MEASURE,
+                List.of(new Note(76, 0, 960), new Note(74, 960, 960)),
+                List.of(new Note(79, 0, 1920)),
+                List.of(new Note(48, 0, 1920)));
+
+        Arrangement arrangement = new VoiceExtractor().extract(score);
+
+        assertEquals(List.of(new Note(76, 0, 960), new Note(74, 960, 960)), arrangement.melody());
+        assertEquals(List.of(new Note(48, 0, 1920)), arrangement.bass());
+    }
+
+    @Test
+    void takesMelodyFromRightHandAndBassFromLeftHand() {
+        // 左手が右手より高い音を弾いても、メロディは右手の一番上、ベースは左手の一番下
+        Score score = new Score(ONE_MEASURE, List.of(),
+                List.of(new Note(67, 0, 480), new Note(60, 0, 480)),
+                List.of(new Note(72, 0, 480), new Note(48, 0, 480)));
+
+        Arrangement arrangement = new VoiceExtractor().extract(score);
+
+        assertEquals(List.of(new Note(67, 0, 480)), arrangement.melody());
+        assertEquals(List.of(new Note(48, 0, 480)), arrangement.bass());
+    }
 }

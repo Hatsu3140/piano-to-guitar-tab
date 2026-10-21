@@ -21,7 +21,7 @@ import java.util.TreeSet;
  * 弾きやすさは次の「コスト」の合計が小さいほど良いとする。
  * <ul>
  *   <li>同時に押さえる2音のフレットが上限（難易度で決まる。中級は4フレット）より離れていたら弾けない</li>
- *   <li>前の音からのポジション移動が大きいほど弾きにくい</li>
+ *   <li>前の音からのポジション移動が大きいほど弾きにくい。次の音までの時間が短い（8分音符より速い）ほど、さらに弾きにくい</li>
  *   <li>高いフレット（特に12フレットより上）ほど弾きにくい</li>
  *   <li>メロディがベースより低い弦にくるのは弾きにくい</li>
  * </ul>
@@ -45,6 +45,7 @@ public class FretAssigner {
     private static final double DROP_BASS_COST = 30.0;
     private static final double CUT_BASS_COST = 10.0;
     private static final double CUT_MELODY_COST = 15.0;
+    private static final double FAST_JUMP_COST = 2.0;
 
     private final Tuning tuning;
     private final int capo;
@@ -107,8 +108,9 @@ public class FretAssigner {
                     cost[i][j] = own;
                     continue;
                 }
+                double speed = speedFactor(times[i] - times[i - 1], arrangement.info().ticksPerQuarter());
                 for (int k = 0; k < states.get(i - 1).size(); k++) {
-                    double total = cost[i - 1][k] + own + transitionCost(states.get(i - 1).get(k), state);
+                    double total = cost[i - 1][k] + own + transitionCost(states.get(i - 1).get(k), state, speed);
                     if (total < cost[i][j]) {
                         cost[i][j] = total;
                         previous[i][j] = k;
@@ -218,8 +220,16 @@ public class FretAssigner {
         return fret * FRET_COST + Math.max(0, fret - 12) * HIGH_FRET_COST;
     }
 
+    /**
+     * 移動のコストにかける倍率。4分音符以上の間があれば1倍、8分音符なら2倍、16分音符なら4倍
+     * （速いパッセージで大きく飛ぶのは難しい）
+     */
+    static double speedFactor(long gapTicks, int ticksPerQuarter) {
+        return Math.clamp((double) ticksPerQuarter / Math.max(1, gapTicks), 1.0, 4.0);
+    }
+
     /** 前のタイミングの押さえ方から今の押さえ方へ移るコスト */
-    private double transitionCost(State before, State after) {
+    private double transitionCost(State before, State after, double speed) {
         double total = 0;
         // 伸ばしている音は同じ場所を押さえ続ける（止めるのは可）
         if (after.melody() != null && !after.melody().isNew()) {
@@ -239,7 +249,12 @@ public class FretAssigner {
         int handBefore = before.handPosition();
         int handAfter = after.handPosition();
         if (handBefore > 0 && handAfter > 0) {
-            total += Math.abs(handAfter - handBefore) * moveCost;
+            int jump = Math.abs(handAfter - handBefore);
+            total += jump * moveCost * speed;
+            // 4分音符より短い間に、指を広げて届く幅を超えて手を飛ばすのは、難易度に関係なく難しい
+            if (speed > 1) {
+                total += Math.max(0, jump - maxStretch) * FAST_JUMP_COST * speed;
+            }
         }
         return total;
     }

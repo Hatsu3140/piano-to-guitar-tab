@@ -1,5 +1,7 @@
 package io.github.hatsu3140.pianotab.converter.musicxml;
 
+import io.github.hatsu3140.pianotab.converter.model.Dynamic;
+import io.github.hatsu3140.pianotab.converter.model.DynamicLevel;
 import io.github.hatsu3140.pianotab.converter.model.Measure;
 import io.github.hatsu3140.pianotab.converter.model.Note;
 import io.github.hatsu3140.pianotab.converter.model.Score;
@@ -21,9 +23,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -32,6 +37,9 @@ import java.util.zip.ZipInputStream;
  *
  * <p>対応しているのは partwise 形式（MuseScore などが書き出す一般的な形式）。
  * 圧縮された .mxl ファイルも読める。装飾音（grace）は今は読み飛ばす。
+ *
+ * <p>音符は段ごとに分ける。2段のパート（ピアノ）は上段と下段に、歌のパート（歌詞があるか、
+ * 名前が「Voice」「歌」など）は歌の段にする。ただし全部のパートが歌なら（合唱曲など）、区別せずにまとめる。
  */
 public class MusicXmlParser {
 
@@ -46,6 +54,10 @@ public class MusicXmlParser {
     /** C, D, E, F, G, A, B の C からの半音数 */
     private static final Map<String, Integer> STEP_SEMITONES = Map.of(
             "C", 0, "D", 2, "E", 4, "F", 5, "G", 7, "A", 9, "B", 11);
+
+    /** 歌のパートらしい名前 */
+    private static final Pattern VOCAL_NAME = Pattern.compile(
+            "(?i).*(voice|vocal|vox|singer|soprano|歌|ボーカル|ヴォーカル|唄).*");
 
     public Score parse(InputStream musicXml) throws IOException, MusicXmlFormatException {
         byte[] data = musicXml.readAllBytes();
@@ -71,15 +83,66 @@ public class MusicXmlParser {
         if (firstPart.measures.isEmpty()) {
             throw new MusicXmlFormatException("小節が見つかりません。");
         }
-        List<Note> notes = new ArrayList<>(firstPart.notes);
+        List<PartReader> readers = new ArrayList<>(List.of(firstPart));
         for (Element part : parts.subList(1, parts.size())) {
             PartReader reader = new PartReader(firstPart.measures);
             reader.read(part);
-            notes.addAll(reader.notes);
+            readers.add(reader);
         }
 
-        SongInfo info = new SongInfo(readTitle(root), readTempo(root), TICKS_PER_QUARTER, firstPart.measures);
-        return new Score(info, notes);
+        // パートを歌・上段・下段に振り分ける
+        Map<String, String> partNames = readPartNames(root);
+        List<Boolean> isVocal = new ArrayList<>();
+        for (int i = 0; i < parts.size(); i++) {
+            PartReader reader = readers.get(i);
+            String name = partNames.getOrDefault(parts.get(i).getAttribute("id"), "");
+            isVocal.add(reader.staves == 1 && (reader.hasLyrics || VOCAL_NAME.matcher(name).matches()));
+        }
+        boolean useVocal = isVocal.contains(true) && isVocal.contains(false);
+        List<Note> vocal = new ArrayList<>();
+        List<Note> upper = new ArrayList<>();
+        List<Note> lower = new ArrayList<>();
+        List<Dynamic> dynamics = new ArrayList<>();
+        for (int i = 0; i < readers.size(); i++) {
+            PartReader reader = readers.get(i);
+            for (int n = 0; n < reader.notes.size(); n++) {
+                Note note = reader.notes.get(n);
+                if (useVocal && isVocal.get(i)) {
+                    vocal.add(note);
+                } else if (reader.staves >= 2 && reader.noteStaves.get(n) >= 2) {
+                    lower.add(note);
+                } else {
+                    upper.add(note);
+                }
+            }
+            dynamics.addAll(reader.dynamics);
+        }
+
+        SongInfo info = new SongInfo(readTitle(root), readTempo(root), TICKS_PER_QUARTER, firstPart.measures,
+                sortAndMerge(dynamics));
+        return new Score(info, vocal, upper, lower);
+    }
+
+    /** 位置の順に並べ、同じ位置に複数あれば最後のものだけ残す */
+    private static List<Dynamic> sortAndMerge(List<Dynamic> dynamics) {
+        Map<Long, Dynamic> byTick = new TreeMap<>();
+        dynamics.stream()
+                .sorted(Comparator.comparingLong(Dynamic::startTick))
+                .forEach(dynamic -> byTick.put(dynamic.startTick(), dynamic));
+        return new ArrayList<>(byTick.values());
+    }
+
+    /** part-list から「パートの id → パート名」を読む */
+    private static Map<String, String> readPartNames(Element root) {
+        Map<String, String> names = new HashMap<>();
+        Element partList = child(root, "part-list");
+        if (partList != null) {
+            for (Element scorePart : children(partList, "score-part")) {
+                String name = childText(scorePart, "part-name");
+                names.put(scorePart.getAttribute("id"), name == null ? "" : name);
+            }
+        }
+        return names;
     }
 
     /** 1つのパート（ピアノなら右手と左手の両方を含む）を読む */
@@ -87,7 +150,13 @@ public class MusicXmlParser {
         /** 2つ目以降のパートで使う、最初のパートの小節位置 */
         private final List<Measure> referenceMeasures;
         private final List<Note> notes = new ArrayList<>();
+        /** notes と同じ順に、それぞれの音符がある段（1 = 上段） */
+        private final List<Integer> noteStaves = new ArrayList<>();
         private final List<Measure> measures = new ArrayList<>();
+        private final List<Dynamic> dynamics = new ArrayList<>();
+        /** パートの段の数（ピアノなら 2） */
+        private int staves = 1;
+        private boolean hasLyrics;
         /** タイでつながっている途中の音（音の高さ → notes の位置） */
         private final Map<Integer, Integer> openTies = new HashMap<>();
         private double divisions = 1;
@@ -114,6 +183,7 @@ public class MusicXmlParser {
                         case "attributes" -> readAttributes(element);
                         case "backup" -> cursor -= toTicks(element);
                         case "forward" -> cursor += toTicks(element);
+                        case "direction" -> readDynamics(element, cursor);
                         case "note" -> {
                             if (child(element, "grace") != null || child(element, "cue") != null) {
                                 continue;
@@ -125,6 +195,10 @@ public class MusicXmlParser {
                                 cursor += duration;
                             }
                             readNote(element, chordStart, duration);
+                            Element notations = child(element, "notations");
+                            if (notations != null) {
+                                readDynamics(notations, chordStart);
+                            }
                         }
                         default -> {
                         }
@@ -148,7 +222,24 @@ public class MusicXmlParser {
             }
         }
 
+        /** element の中にある強弱記号（&lt;dynamics&gt;&lt;f/&gt;&lt;/dynamics&gt; など）を読む */
+        private void readDynamics(Element element, long tick) {
+            NodeList found = element.getElementsByTagName("dynamics");
+            for (int i = 0; i < found.getLength(); i++) {
+                for (Element mark : children((Element) found.item(i))) {
+                    DynamicLevel level = DynamicLevel.fromMark(mark.getTagName());
+                    if (level != null) {
+                        dynamics.add(new Dynamic(tick, level));
+                    }
+                }
+            }
+        }
+
         private void readAttributes(Element attributes) throws MusicXmlFormatException {
+            String stavesText = childText(attributes, "staves");
+            if (stavesText != null) {
+                staves = Math.max(staves, (int) parseNumber(stavesText));
+            }
             String divisionsText = childText(attributes, "divisions");
             if (divisionsText != null) {
                 divisions = parseNumber(divisionsText);
@@ -174,6 +265,9 @@ public class MusicXmlParser {
                 return; // 休符や打楽器の音
             }
             int pitch = toMidiPitch(pitchElement);
+            String staffText = childText(note, "staff");
+            int staff = staffText == null ? 1 : (int) parseNumber(staffText);
+            hasLyrics |= child(note, "lyric") != null;
 
             boolean tieStart = false;
             boolean tieStop = false;
@@ -193,6 +287,7 @@ public class MusicXmlParser {
                 return;
             }
             notes.add(new Note(pitch, start, duration));
+            noteStaves.add(staff);
             if (tieStart) {
                 openTies.put(pitch, notes.size() - 1);
             } else {

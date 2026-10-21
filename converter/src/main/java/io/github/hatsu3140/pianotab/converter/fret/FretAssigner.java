@@ -20,7 +20,7 @@ import java.util.TreeSet;
  * 候補を全部出し、曲全体で一番弾きやすい組み合わせを選ぶ（動的計画法 = DP）。
  * 弾きやすさは次の「コスト」の合計が小さいほど良いとする。
  * <ul>
- *   <li>同時に押さえる2音のフレットが上限（難易度で決まる。中級は4フレット）より離れていたら弾けない</li>
+ *   <li>同時に押さえる2音を指で押さえられなければ弾けない（{@link Hand}。フレットの差の上限は難易度で決まる）</li>
  *   <li>前の音からのポジション移動が大きいほど弾きにくい。次の音までの時間が短い（8分音符より速い）ほど、さらに弾きにくい</li>
  *   <li>高いフレット（特に12フレットより上）ほど弾きにくい</li>
  *   <li>メロディがベースより低い弦にくるのは弾きにくい</li>
@@ -53,6 +53,7 @@ public class FretAssigner {
     private final int maxStretch;
     private final double moveCost;
     private final double frettedBassCost;
+    private final Hand hand;
 
     /** カポなし・19フレットまで使う */
     public FretAssigner(Tuning tuning) {
@@ -72,6 +73,7 @@ public class FretAssigner {
         this.maxStretch = maxStretch;
         this.moveCost = moveCost;
         this.frettedBassCost = frettedBassCost;
+        this.hand = new Hand(capo, maxStretch, Hand.MAX_FINGERS, true);
     }
 
     public TabScore assign(Arrangement arrangement) {
@@ -193,7 +195,9 @@ public class FretAssigner {
             }
             if (melody.fret() > 0 && bass.fret() > 0) {
                 int stretch = Math.abs(melody.fret() - bass.fret());
-                if (stretch > maxStretch) {
+                if (stretch > maxStretch || !hand.canPlay(List.of(
+                        new TabNote(null, melody.string(), melody.fret() + capo),
+                        new TabNote(null, bass.string(), bass.fret() + capo)))) {
                     return IMPOSSIBLE;
                 }
                 total += Math.max(0, stretch - 2) * STRETCH_COST;

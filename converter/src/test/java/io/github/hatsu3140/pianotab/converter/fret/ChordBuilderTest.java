@@ -86,7 +86,7 @@ class ChordBuilderTest {
         List<Note> wide = List.of(new Note(40, 0, 960), new Note(52, 0, 960), new Note(55, 0, 960),
                 new Note(59, 0, 960), new Note(62, 0, 960), new Note(66, 0, 960));
         TabNote high = new TabNote(new Note(67, 0, 960), 1, 3);
-        TabNote bass = new TabNote(new Note(43, 0, 960), 6, 3);
+        TabNote bass = new TabNote(new Note(45, 0, 960), 5, 0);
         TabScore tab = new TabScore(loud, Tuning.STANDARD, 0, List.of(high), List.of(bass));
 
         for (Difficulty difficulty : Difficulty.values()) {

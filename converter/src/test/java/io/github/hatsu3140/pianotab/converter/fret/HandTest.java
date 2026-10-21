@@ -83,8 +83,31 @@ class HandTest {
         assertTrue(hand.fingering(List.of(note(2, 9), note(3, 5), note(4, 6), note(5, 6))).isEmpty());
         // 人差し指 5・中指 6・小指 9 なら届く
         assertTrue(hand.canPlay(List.of(note(2, 9), note(3, 5), note(4, 6))));
-        // 2音なら人差し指と小指で4フレット離せる
-        assertTrue(hand.canPlay(List.of(note(1, 8), note(6, 4))));
+        // 7フレット付近なら、人差し指と小指で4フレット離せる
+        assertTrue(hand.canPlay(List.of(note(1, 11), note(6, 7))));
+    }
+
+    @Test
+    void spreadsLessNearTheNut() {
+        Hand hand = new Hand(0, 4, 4, true);
+
+        // 1フレット付近では、人差し指と小指は3フレットまで
+        assertFalse(hand.canPlay(List.of(note(1, 5), note(6, 1))));
+        assertTrue(hand.canPlay(List.of(note(1, 4), note(6, 1))));
+        // 2・3弦1フレットを人差し指と中指、4弦3を薬指で押さえたまま、小指で1弦4には届かない
+        assertFalse(hand.canPlay(List.of(note(1, 4), note(2, 1), note(3, 1), note(4, 3))));
+        // カポを付けても、ネックの実際のフレットで考える
+        assertTrue(new Hand(5, 4, 4, true).canPlay(List.of(note(1, 9), note(6, 5))));
+    }
+
+    @Test
+    void cannotPressOneFretWithFingersFarApart() {
+        Hand hand = new Hand(0, 4, 4, true);
+
+        // 6弦3と1弦3を人差し指と中指で（4弦は開放なのでセーハもできない）
+        assertFalse(hand.canPlay(List.of(note(1, 3), note(4, 0), note(6, 3))));
+        // A のように隣の弦なら並べられる
+        assertTrue(hand.canPlay(List.of(note(2, 2), note(3, 2), note(4, 2))));
     }
 
     @Test

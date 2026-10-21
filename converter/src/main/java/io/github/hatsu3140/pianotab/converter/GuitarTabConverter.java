@@ -7,6 +7,7 @@ import io.github.hatsu3140.pianotab.converter.model.Arrangement;
 import io.github.hatsu3140.pianotab.converter.model.Score;
 import io.github.hatsu3140.pianotab.converter.model.TabScore;
 import io.github.hatsu3140.pianotab.converter.model.Tuning;
+import io.github.hatsu3140.pianotab.converter.musicxml.MusicXmlFormatException;
 import io.github.hatsu3140.pianotab.converter.musicxml.MusicXmlParser;
 
 import java.io.IOException;
@@ -34,7 +35,7 @@ public class GuitarTabConverter {
         this.fretAssigner = new FretAssigner(tuning);
     }
 
-    public ConversionResult convert(InputStream musicXml) throws IOException {
+    public ConversionResult convert(InputStream musicXml) throws IOException, MusicXmlFormatException {
         Score score = parser.parse(musicXml);
         Arrangement arrangement = voiceExtractor.extract(score);
         TabScore tabScore = fretAssigner.assign(arrangement);

@@ -5,6 +5,7 @@ import io.github.hatsu3140.pianotab.converter.model.Tuning;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -56,6 +57,25 @@ class GuitarTabConverterTest {
     void rejectsCapoOutOfRange() {
         assertThrows(IllegalArgumentException.class,
                 () -> new ConversionOptions(Difficulty.INTERMEDIATE, Tuning.STANDARD, 8, 0));
+    }
+
+    @Test
+    void reportsWhatWasConverted() throws Exception {
+        ConversionResult result = convert(ConversionOptions.DEFAULT);
+
+        ConversionReport report = result.report();
+        assertEquals(4, report.melodyNotes());
+        assertEquals(0, report.unplayablePlaces());
+        assertTrue(report.messages().get(0).startsWith("メロディ 4 音"));
+    }
+
+    @Test
+    void canTurnOffStrokes() throws Exception {
+        ConversionOptions options = new ConversionOptions(Difficulty.ADVANCED, Tuning.STANDARD, 0, 0, false, false);
+
+        ConversionResult result = convert(options);
+
+        assertEquals(List.of(), result.tabScore().strokes());
     }
 
     private ConversionResult convert(ConversionOptions options) throws Exception {

@@ -23,6 +23,17 @@ public record Score(SongInfo info, List<Note> vocal, List<Note> upper, List<Note
         this(info, List.of(), notes, List.of());
     }
 
+    /** すべての音符の高さを semitones 半音ずらす（段の区別はそのまま） */
+    public Score transpose(int semitones) {
+        return new Score(info, shift(vocal, semitones), shift(upper, semitones), shift(lower, semitones));
+    }
+
+    private static List<Note> shift(List<Note> notes, int semitones) {
+        return notes.stream()
+                .map(note -> new Note(note.pitch() + semitones, note.startTick(), note.durationTicks()))
+                .toList();
+    }
+
     /** すべての音符（歌・上段・下段の順） */
     public List<Note> notes() {
         List<Note> all = new ArrayList<>(vocal);

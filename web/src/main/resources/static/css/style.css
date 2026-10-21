@@ -53,13 +53,14 @@ h1 {
 /* 設定欄: 左に項目名、右に入力欄を並べる */
 .settings {
     display: grid;
-    grid-template-columns: max-content 1fr;
+    grid-template-columns: max-content minmax(0, 1fr);
     gap: 8px 16px;
     align-items: center;
 }
 
 select,
 input[type="number"] {
+    max-width: 100%;
     padding: 4px 8px;
     font-size: 1rem;
 }
@@ -82,4 +83,18 @@ button:disabled {
 
 .status.error {
     color: var(--error);
+}
+
+/* 奏法のチェックボックス: 横に並べる */
+.checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+}
+
+/* 変換レポート */
+.report {
+    margin: 0;
+    padding-left: 1.2em;
+    color: var(--muted);
 }

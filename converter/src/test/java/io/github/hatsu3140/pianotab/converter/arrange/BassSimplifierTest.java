@@ -35,10 +35,23 @@ class BassSimplifierTest {
     }
 
     @Test
-    void letsEveryBassNoteRingUntilTheNextForAdvanced() {
+    void movesRisingAccompanimentToHarmonyForAdvanced() {
+        // 1拍目の裏の B2 は、同じ拍の E2 より上がる伴奏の刻みなので、ベースではなく和音の候補にする
         Arrangement result = new BassSimplifier(BassRhythm.ALL).simplify(ARRANGEMENT);
 
-        assertEquals(List.of(new Note(40, 0, 240), new Note(47, 240, 240), new Note(52, 480, 1440)), result.bass());
+        assertEquals(List.of(new Note(40, 0, 480), new Note(52, 480, 1440)), result.bass());
+        assertEquals(List.of(new Note(47, 240, 240)), result.harmony());
+    }
+
+    @Test
+    void keepsFallingBassLineForAdvanced() {
+        // 同じ拍の中でも、下がっていくベースの動きは残す
+        Arrangement arrangement = new Arrangement(ONE_MEASURE, List.of(), List.of(
+                new Note(47, 0, 240), new Note(45, 240, 240), new Note(43, 480, 480)));
+
+        Arrangement result = new BassSimplifier(BassRhythm.ALL).simplify(arrangement);
+
+        assertEquals(List.of(new Note(47, 0, 240), new Note(45, 240, 240), new Note(43, 480, 1440)), result.bass());
     }
 
     @Test

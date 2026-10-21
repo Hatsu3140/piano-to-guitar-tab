@@ -4,6 +4,7 @@ import io.github.hatsu3140.pianotab.converter.gp5.Gp5Writer.Beat;
 import io.github.hatsu3140.pianotab.converter.gp5.Gp5Writer.Duration;
 import io.github.hatsu3140.pianotab.converter.model.Measure;
 import io.github.hatsu3140.pianotab.converter.model.Note;
+import io.github.hatsu3140.pianotab.converter.model.Stroke;
 import io.github.hatsu3140.pianotab.converter.model.TabNote;
 import io.github.hatsu3140.pianotab.converter.model.TabScore;
 import io.github.hatsu3140.pianotab.converter.model.Tuning;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 import static io.github.hatsu3140.pianotab.converter.TestScores.ONE_MEASURE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,6 +42,32 @@ class Gp5WriterTest {
 
         assertTrue(text.contains("Guitar (Capo 3)"));
         assertTrue(text.contains("\u0006Capo 3"));
+    }
+
+    @Test
+    void groupsNotesStartingTogetherIntoChordWithStroke() {
+        // メロディ E4 と内声 G3 が同じ位置で鳴り始める → 1つの拍の和音にまとめ、ストロークを付ける
+        TabNote melody = new TabNote(new Note(64, 0, 1920), 1, 0);
+        TabNote inner = new TabNote(new Note(55, 0, 1920), 3, 0);
+        Stroke stroke = new Stroke(0, false);
+
+        List<Beat> beats = rhythm.toBeats(List.of(melody, inner), ONE_MEASURE.measures(), Map.of(0L, stroke)).get(0);
+
+        assertEquals(List.of(new Beat(new Duration(-2, false), List.of(melody, inner), false, stroke)), beats);
+    }
+
+    @Test
+    void writesChordsAndStrokes() {
+        TabNote melody = new TabNote(new Note(64, 0, 1920), 1, 0);
+        TabNote inner = new TabNote(new Note(55, 0, 1920), 3, 0);
+        TabScore tab = new TabScore(ONE_MEASURE, Tuning.STANDARD, 0, List.of(melody), List.of(), List.of(inner),
+                List.of(new Stroke(0, false)));
+
+        byte[] withStroke = new Gp5Writer().write(tab);
+        byte[] withoutStroke = new Gp5Writer().write(tab.withStrokes(List.of()));
+
+        // ストロークの分（エフェクトのフラグ2バイト＋速さ2バイト）だけ長くなる
+        assertEquals(withoutStroke.length + 4, withStroke.length);
     }
 
     @Test

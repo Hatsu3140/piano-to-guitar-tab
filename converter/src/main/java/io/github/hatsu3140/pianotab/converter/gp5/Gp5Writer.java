@@ -3,6 +3,7 @@ package io.github.hatsu3140.pianotab.converter.gp5;
 import io.github.hatsu3140.pianotab.converter.model.DynamicLevel;
 import io.github.hatsu3140.pianotab.converter.model.Measure;
 import io.github.hatsu3140.pianotab.converter.model.SongInfo;
+import io.github.hatsu3140.pianotab.converter.model.Stroke;
 import io.github.hatsu3140.pianotab.converter.model.TabNote;
 import io.github.hatsu3140.pianotab.converter.model.TabScore;
 import io.github.hatsu3140.pianotab.converter.model.Tuning;
@@ -20,7 +21,8 @@ import java.util.TreeMap;
 /**
  * 手順4: TAB 譜を Guitar Pro 5 形式（.gp5）のバイト列にする。
  *
- * <p>ギター1トラックで、声部1にメロディ、声部2にベースを入れる。
+ * <p>ギター1トラックで、声部1にメロディ（と和音の内声）、声部2にベースを入れる。
+ * ストロークを付ける和音には、拍のエフェクトとしてストロークを書く。
  * リズムは16分音符単位か、8分音符の3連符単位にそろえる（5連符などは近い位置に寄せる）。
  * 強弱記号があれば、音の強さとして書く。
  *
@@ -35,6 +37,9 @@ public class Gp5Writer {
     /** MIDI の音色番号（24 = ナイロン弦ギター） */
     private static final int NYLON_GUITAR_PROGRAM = 24;
     private static final int FRET_COUNT = 24;
+    /** ストロークの速さ（Guitar Pro の値。4 = 16分音符, 3 = 32分音符） */
+    private static final int STROKE_SIXTEENTH = 4;
+    private static final int STROKE_THIRTY_SECOND = 3;
 
     public byte[] write(TabScore tabScore) {
         SongInfo info = tabScore.info();
@@ -63,8 +68,12 @@ public class Gp5Writer {
         out.skip(2);
 
         Rhythm rhythm = new Rhythm(info.ticksPerQuarter());
-        List<List<Beat>> melodyBeats = rhythm.toBeats(tabScore.melody(), measures);
-        List<List<Beat>> bassBeats = rhythm.toBeats(tabScore.bass(), measures);
+        List<TabNote> upperVoice = new ArrayList<>(tabScore.melody());
+        upperVoice.addAll(tabScore.inner());
+        Map<Long, Stroke> strokes = new HashMap<>();
+        tabScore.strokes().forEach(stroke -> strokes.put(stroke.startTick(), stroke));
+        List<List<Beat>> melodyBeats = rhythm.toBeats(upperVoice, measures, strokes);
+        List<List<Beat>> bassBeats = rhythm.toBeats(tabScore.bass(), measures, Map.of());
         for (int i = 0; i < measures.size(); i++) {
             writeVoice(out, melodyBeats.get(i), false, i == 0 ? capoText : null, info);
             writeVoice(out, bassBeats.get(i), true, null, info);
@@ -211,7 +220,7 @@ public class Gp5Writer {
     /** @param firstBeatText 最初の拍に付ける文字（なければ null） */
     private static void writeVoice(LittleEndianWriter out, List<Beat> beats, boolean isSecondVoice,
                                    String firstBeatText, SongInfo info) {
-        boolean hasNotes = beats.stream().anyMatch(beat -> beat.note() != null);
+        boolean hasNotes = beats.stream().anyMatch(beat -> !beat.notes().isEmpty());
         if (isSecondVoice && !hasNotes) {
             // 音のない第2声部は休符も書かず「空」にする
             out.writeInt(1);
@@ -229,18 +238,23 @@ public class Gp5Writer {
     }
 
     private static void writeBeat(LittleEndianWriter out, Beat beat, String text, SongInfo info) {
+        boolean rest = beat.notes().isEmpty();
+        Stroke stroke = beat.tied() ? null : beat.stroke();
         int flags = beat.duration().dotted() ? 0x01 : 0x00;
         if (text != null) {
             flags |= 0x04;
         }
+        if (stroke != null) {
+            flags |= 0x08;
+        }
         if (beat.duration().triplet()) {
             flags |= 0x20;
         }
-        if (beat.note() == null) {
+        if (rest) {
             flags |= 0x40;
         }
         out.writeByte(flags);
-        if (beat.note() == null) {
+        if (rest) {
             out.writeByte(0x02); // 休符
         }
         out.writeByte(beat.duration().value());
@@ -250,14 +264,21 @@ public class Gp5Writer {
         if (text != null) {
             out.intByteSizeString(text);
         }
-        if (beat.note() == null) {
-            out.writeByte(0);
-        } else {
-            TabNote note = beat.note();
+        if (stroke != null) {
+            writeStroke(out, stroke);
+        }
+        int strings = 0;
+        for (TabNote note : beat.notes()) {
+            strings |= 1 << (7 - note.string());
+        }
+        out.writeByte(strings);
+        // 弦の番号順（1弦から）に書く
+        List<TabNote> notes = new ArrayList<>(beat.notes());
+        notes.sort(Comparator.comparingInt(TabNote::string));
+        for (TabNote note : notes) {
             // 強さ。Guitar Pro では 1 = ppp 〜 8 = fff で、書かなければ f になる
             DynamicLevel level = beat.tied() ? null : info.dynamicAt(note.note().startTick());
             boolean writeDynamic = level != null && level != DynamicLevel.F;
-            out.writeByte(1 << (7 - note.string()));
             out.writeByte(0x20 | (writeDynamic ? 0x10 : 0)); // 音の種類とフレット（と強さ）を書く
             out.writeByte(beat.tied() ? 2 : 1); // 2 = タイで前の音から続く, 1 = 普通の音
             if (writeDynamic) {
@@ -270,6 +291,18 @@ public class Gp5Writer {
     }
 
     /**
+     * ストローク（拍のエフェクト）。向きは TuxGuitar の「ダウン」（低い弦から高い弦へ。譜面では↑の矢印）で、
+     * 普通は16分音符、軽いストロークは32分音符の速さで鳴らす。
+     * バイトの順番は「アップの速さ」「ダウンの速さ」（TuxGuitar の GP5 読み込みと同じ）
+     */
+    private static void writeStroke(LittleEndianWriter out, Stroke stroke) {
+        out.writeByte(0x40); // ストロークあり
+        out.writeByte(0x00);
+        out.writeByte(0); // アップ（使わない）
+        out.writeByte(stroke.soft() ? STROKE_THIRTY_SECOND : STROKE_SIXTEENTH); // ダウン
+    }
+
+    /**
      * Guitar Pro の音符の長さ。value: -2 = 全音符, -1 = 2分, 0 = 4分, 1 = 8分, 2 = 16分。
      * triplet が true なら3連符（3つで value の音符2つ分の長さ）
      */
@@ -279,8 +312,21 @@ public class Gp5Writer {
         }
     }
 
-    /** 1拍分（1つの音または休符） */
-    record Beat(Duration duration, TabNote note, boolean tied) {
+    /** 1拍分（音・和音、または休符）。notes が空なら休符 */
+    record Beat(Duration duration, List<TabNote> notes, boolean tied, Stroke stroke) {
+        Beat {
+            notes = List.copyOf(notes);
+        }
+
+        /** 1音（null なら休符）だけで、ストロークのない拍 */
+        Beat(Duration duration, TabNote note, boolean tied) {
+            this(duration, note == null ? List.of() : List.of(note), tied, null);
+        }
+
+        /** 最初の音（休符なら null） */
+        TabNote note() {
+            return notes.isEmpty() ? null : notes.get(0);
+        }
     }
 
     /**
@@ -313,8 +359,13 @@ public class Gp5Writer {
         }
 
         List<List<Beat>> toBeats(List<TabNote> notes, List<Measure> measures) {
+            return toBeats(notes, measures, Map.of());
+        }
+
+        /** @param strokes 鳴り始めの位置（元の tick）ごとのストローク */
+        List<List<Beat>> toBeats(List<TabNote> notes, List<Measure> measures, Map<Long, Stroke> strokes) {
             Grid grid = new Grid(notes, measures);
-            List<Event> events = toEvents(notes, grid);
+            List<Event> events = toEvents(notes, grid, strokes);
             List<List<Beat>> result = new ArrayList<>();
             int eventIndex = 0;
             for (Measure measure : measures) {
@@ -330,19 +381,19 @@ public class Gp5Writer {
                     Event event = events.get(i);
                     long start = Math.max(event.start(), measureStart);
                     long end = Math.min(event.end(), measureEnd);
-                    addBeats(beats, cursor, start, null, false, grid);
+                    addBeats(beats, cursor, start, List.of(), false, null, grid);
                     // 前の小節から続いている音はタイにする
-                    addBeats(beats, start, end, event.note(), event.start() < measureStart, grid);
+                    addBeats(beats, start, end, event.notes(), event.start() < measureStart, event.stroke(), grid);
                     cursor = end;
                 }
-                addBeats(beats, cursor, measureEnd, null, false, grid);
+                addBeats(beats, cursor, measureEnd, List.of(), false, null, grid);
                 result.add(beats);
             }
             return result;
         }
 
-        /** 音の開始・終了をそろえ、重なりをなくす */
-        private List<Event> toEvents(List<TabNote> notes, Grid grid) {
+        /** 音の開始・終了をそろえ、重なりをなくす。同じ位置で鳴り始める音は和音にまとめる */
+        private List<Event> toEvents(List<TabNote> notes, Grid grid, Map<Long, Stroke> strokes) {
             List<TabNote> sorted = new ArrayList<>(notes);
             sorted.sort(Comparator.comparingLong(note -> note.note().startTick()));
             List<Event> events = new ArrayList<>();
@@ -352,16 +403,25 @@ public class Gp5Writer {
                 if (end <= start) {
                     end = grid.nextPoint(start);
                 }
+                Stroke stroke = strokes.get(note.note().startTick());
                 if (!events.isEmpty()) {
                     Event previous = events.get(events.size() - 1);
                     if (previous.start() == start) {
-                        continue; // 同じ位置に2つ目の音は置けないので捨てる
+                        // 和音にまとめる（同じ弦の2音目は置けないので捨てる）。長さは最初の音（メロディ）に合わせる
+                        if (previous.notes().stream().noneMatch(other -> other.string() == note.string())) {
+                            List<TabNote> chord = new ArrayList<>(previous.notes());
+                            chord.add(note);
+                            events.set(events.size() - 1, new Event(previous.start(), previous.end(), chord,
+                                    previous.stroke() != null ? previous.stroke() : stroke));
+                        }
+                        continue;
                     }
                     if (previous.end() > start) {
-                        events.set(events.size() - 1, new Event(previous.start(), start, previous.note()));
+                        events.set(events.size() - 1,
+                                new Event(previous.start(), start, previous.notes(), previous.stroke()));
                     }
                 }
-                events.add(new Event(start, end, note));
+                events.add(new Event(start, end, List.of(note), stroke));
             }
             return events;
         }
@@ -370,8 +430,8 @@ public class Gp5Writer {
          * from から to までを、書ける音符の長さの組み合わせに分けて追加する。
          * 3連符の区間は3連符の長さで、それ以外は普通の長さで分ける。
          */
-        private void addBeats(List<Beat> beats, long from, long to, TabNote note, boolean tiedFromPrevious,
-                              Grid grid) {
+        private void addBeats(List<Beat> beats, long from, long to, List<TabNote> notes, boolean tiedFromPrevious,
+                              Stroke stroke, Grid grid) {
             boolean tied = tiedFromPrevious;
             long runStart = from;
             boolean runIsTriplet = false;
@@ -382,26 +442,27 @@ public class Gp5Writer {
                 // 区間を丸ごと使うなら普通の4分音符でよいので、3連符にするのは区間の一部だけのとき
                 boolean triplet = window.triplet() && !(position == window.start() && pieceEnd == window.end());
                 if (position > runStart && triplet != runIsTriplet) {
-                    tied = addRun(beats, position - runStart, runIsTriplet, note, tied);
+                    tied = addRun(beats, position - runStart, runIsTriplet, notes, tied, stroke);
                     runStart = position;
                 }
                 runIsTriplet = triplet;
                 position = pieceEnd;
             }
             if (to > runStart) {
-                addRun(beats, to - runStart, runIsTriplet, note, tied);
+                addRun(beats, to - runStart, runIsTriplet, notes, tied, stroke);
             }
         }
 
         /** 同じ種類（普通 / 3連符）の長さ length を音符に分けて追加する。追加したら true（次はタイ）を返す */
-        private boolean addRun(List<Beat> beats, long length, boolean triplet, TabNote note, boolean tied) {
+        private boolean addRun(List<Beat> beats, long length, boolean triplet, List<TabNote> notes, boolean tied,
+                               Stroke stroke) {
             long[] lengths = triplet ? tripletLengths : straightLengths;
             Duration[] durations = triplet ? tripletDurations : straightDurations;
             long smallest = lengths[lengths.length - 1];
             long remaining = length;
             for (int i = 0; i < lengths.length && remaining >= smallest; ) {
                 if (lengths[i] <= remaining) {
-                    beats.add(new Beat(durations[i], note, note != null && tied));
+                    beats.add(new Beat(durations[i], notes, !notes.isEmpty() && tied, stroke));
                     remaining -= lengths[i];
                     tied = true;
                 } else {
@@ -411,7 +472,7 @@ public class Gp5Writer {
             return tied;
         }
 
-        private record Event(long start, long end, TabNote note) {
+        private record Event(long start, long end, List<TabNote> notes, Stroke stroke) {
         }
 
         /** 4分音符1つ分ずつの区間と、それぞれを3連符にするかどうか */

@@ -1,5 +1,6 @@
 package io.github.hatsu3140.pianotab.converter.fret;
 
+import io.github.hatsu3140.pianotab.converter.Difficulty;
 import io.github.hatsu3140.pianotab.converter.model.Arrangement;
 import io.github.hatsu3140.pianotab.converter.model.Note;
 import io.github.hatsu3140.pianotab.converter.model.TabNote;
@@ -105,5 +106,39 @@ class FretAssignerTest {
         TabScore tab = assigner.assign(arrangement);
 
         assertEquals(new TabNote(new Note(67, 480, 480), 2, 8), tab.bass().get(0));
+    }
+
+    @Test
+    void addsCapoToOutputFrets() {
+        // カポ3なら G4 は1弦の「カポの位置の開放」→ 出力は1弦3フレット
+        FretAssigner withCapo = new FretAssigner(Tuning.STANDARD, 3, Difficulty.INTERMEDIATE);
+        Arrangement arrangement = new Arrangement(ONE_MEASURE, List.of(new Note(67, 0, 480)), List.of());
+
+        TabScore tab = withCapo.assign(arrangement);
+
+        assertEquals(new TabNote(new Note(67, 0, 480), 1, 3), tab.melody().get(0));
+        assertEquals(3, tab.capo());
+    }
+
+    @Test
+    void keepsWithinFretRangeOfDifficulty() {
+        // 入門は5フレットまで。E5（1弦12フレット）は1オクターブ下の E4（1弦開放）にする
+        FretAssigner introductory = new FretAssigner(Tuning.STANDARD, 0, Difficulty.INTRODUCTORY);
+        Arrangement arrangement = new Arrangement(ONE_MEASURE, List.of(new Note(76, 0, 480)), List.of());
+
+        TabScore tab = introductory.assign(arrangement);
+
+        assertEquals(new TabNote(new Note(64, 0, 480), 1, 0), tab.melody().get(0));
+    }
+
+    @Test
+    void movesUnreachablePitchToAnotherOctave() {
+        // ドロップD・5フレットまでだと G#2 は押さえられない（6弦は D2〜G2、5弦は A2〜）→ G#3 にする
+        FretAssigner dropD = new FretAssigner(Tuning.DROP_D, 0, Difficulty.BEGINNER);
+        Arrangement arrangement = new Arrangement(ONE_MEASURE, List.of(new Note(44, 0, 480)), List.of());
+
+        TabScore tab = dropD.assign(arrangement);
+
+        assertEquals(56, tab.melody().get(0).note().pitch());
     }
 }

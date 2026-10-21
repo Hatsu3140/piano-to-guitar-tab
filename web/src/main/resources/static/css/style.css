@@ -50,6 +50,20 @@ h1 {
     font-weight: bold;
 }
 
+/* 設定欄: 左に項目名、右に入力欄を並べる */
+.settings {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 16px;
+    align-items: center;
+}
+
+select,
+input[type="number"] {
+    padding: 4px 8px;
+    font-size: 1rem;
+}
+
 button {
     align-self: flex-start;
     padding: 8px 24px;

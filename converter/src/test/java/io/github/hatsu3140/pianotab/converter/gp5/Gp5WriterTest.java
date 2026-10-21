@@ -14,6 +14,7 @@ import java.util.List;
 
 import static io.github.hatsu3140.pianotab.converter.TestScores.ONE_MEASURE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class Gp5WriterTest {
 
@@ -21,13 +22,24 @@ class Gp5WriterTest {
 
     @Test
     void startsWithGuitarProVersion() {
-        TabScore tab = new TabScore(ONE_MEASURE, Tuning.STANDARD, List.of(), List.of());
+        TabScore tab = new TabScore(ONE_MEASURE, Tuning.STANDARD, 0, List.of(), List.of());
 
         byte[] gp5 = new Gp5Writer().write(tab);
 
         String version = "FICHIER GUITAR PRO v5.00";
         assertEquals(version.length(), gp5[0]);
         assertEquals(version, new String(gp5, 1, version.length(), StandardCharsets.US_ASCII));
+    }
+
+    @Test
+    void writesCapoAsText() {
+        TabNote note = new TabNote(new Note(67, 0, 1920), 1, 3);
+        TabScore tab = new TabScore(ONE_MEASURE, Tuning.STANDARD, 3, List.of(note), List.of());
+
+        String text = new String(new Gp5Writer().write(tab), StandardCharsets.ISO_8859_1);
+
+        assertTrue(text.contains("Guitar (Capo 3)"));
+        assertTrue(text.contains("\u0006Capo 3"));
     }
 
     @Test

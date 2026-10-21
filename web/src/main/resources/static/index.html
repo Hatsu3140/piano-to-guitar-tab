@@ -14,6 +14,38 @@
     <form id="upload-form" class="card">
         <label for="file-input" class="label">MusicXML ファイル（.musicxml / .xml / .mxl）</label>
         <input id="file-input" name="file" type="file" accept=".musicxml,.xml,.mxl" required>
+
+        <div class="settings">
+            <label for="difficulty" class="label">難易度</label>
+            <select id="difficulty" name="difficulty">
+                <option value="INTRODUCTORY">入門（メロディだけ・0〜5フレット）</option>
+                <option value="BEGINNER">初級（メロディ＋小節頭のベース・0〜5フレット）</option>
+                <option value="INTERMEDIATE" selected>中級（メロディ＋拍頭のベース・0〜7フレット）</option>
+                <option value="ADVANCED">上級（メロディ＋ベース・0〜15フレット）</option>
+            </select>
+
+            <label for="tuning" class="label">チューニング</label>
+            <select id="tuning" name="tuning">
+                <option value="STANDARD" selected>レギュラー（EADGBE）</option>
+                <option value="DROP_D">ドロップD（DADGBE）</option>
+            </select>
+
+            <label for="capo" class="label">カポ</label>
+            <select id="capo" name="capo">
+                <option value="0" selected>なし</option>
+                <option value="1">1フレット</option>
+                <option value="2">2フレット</option>
+                <option value="3">3フレット</option>
+                <option value="4">4フレット</option>
+                <option value="5">5フレット</option>
+                <option value="6">6フレット</option>
+                <option value="7">7フレット</option>
+            </select>
+
+            <label for="transpose" class="label">移調（半音）</label>
+            <input id="transpose" name="transpose" type="number" min="-12" max="12" step="1" value="0">
+        </div>
+
         <button id="submit-button" type="submit">変換する</button>
     </form>
 

@@ -2,6 +2,7 @@ package io.github.hatsu3140.pianotab.converter.arrange;
 
 import io.github.hatsu3140.pianotab.converter.model.Arrangement;
 import io.github.hatsu3140.pianotab.converter.model.Note;
+import io.github.hatsu3140.pianotab.converter.model.Tuning;
 
 import java.util.List;
 
@@ -11,21 +12,43 @@ import java.util.List;
  * <p>曲のキー（調）は変えず、声部ごとに丸ごと上げ下げするだけ。
  * たとえばボーカルのメロディが高すぎる曲では、メロディだけ1オクターブ下げる。
  * どの高さが一番弾きやすいかは、範囲からはみ出す量が一番少ない移動量で決める。
+ *
+ * <p>弾きやすい範囲はチューニング・カポ・使うフレットの上限から決める。
+ * メロディは「1弦の一番高いフレット」から下の約1オクターブ半、ベースは「一番低い開放弦」から上の
+ * 1オクターブ少々（レギュラー・カポなし・12フレットまでなら、メロディ A3〜E5、ベース E2〜G3）。
  */
 public class OctavePlacer {
 
-    /** メロディが弾きやすい高さ: A3〜E5（1〜3弦の12フレットまで） */
-    static final int MELODY_LOW = 57;
-    static final int MELODY_HIGH = 76;
-    /** ベースが弾きやすい高さ: E2〜G3（4〜6弦の低いポジション） */
-    static final int BASS_LOW = 40;
-    static final int BASS_HIGH = 55;
+    /** メロディの範囲の幅（半音） */
+    static final int MELODY_SPAN = 19;
+    /** ベースの範囲の幅（半音） */
+    static final int BASS_SPAN = 15;
 
     private static final int MAX_OCTAVES = 3;
 
+    private final int melodyLow;
+    private final int melodyHigh;
+    private final int bassLow;
+    private final int bassHigh;
+
+    /** レギュラーチューニング・カポなし・12フレットまで */
+    public OctavePlacer() {
+        this(Tuning.STANDARD, 0, 12);
+    }
+
+    /**
+     * @param maxFret 使う一番高いフレット（カポ基準）
+     */
+    public OctavePlacer(Tuning tuning, int capo, int maxFret) {
+        this.melodyHigh = tuning.highestPitch() + capo + maxFret;
+        this.melodyLow = melodyHigh - MELODY_SPAN;
+        this.bassLow = tuning.lowestPitch() + capo;
+        this.bassHigh = bassLow + BASS_SPAN;
+    }
+
     public Arrangement place(Arrangement arrangement) {
-        int melodyShift = bestShift(arrangement.melody(), MELODY_LOW, MELODY_HIGH);
-        int bassShift = bestShift(arrangement.bass(), BASS_LOW, BASS_HIGH);
+        int melodyShift = bestShift(arrangement.melody(), melodyLow, melodyHigh);
+        int bassShift = bestShift(arrangement.bass(), bassLow, bassHigh);
         return new Arrangement(arrangement.info(),
                 shift(arrangement.melody(), melodyShift),
                 shift(arrangement.bass(), bassShift));

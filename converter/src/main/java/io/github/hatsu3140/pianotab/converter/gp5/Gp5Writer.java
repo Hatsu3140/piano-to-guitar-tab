@@ -20,6 +20,9 @@ import java.util.List;
  * リズムは16分音符単位にそろえる（3連符などは近い位置に寄せられる）。
  * TODO: 3連符への対応。
  *
+ * <p>カポを付けたときは、フレットはカポの分を足したネック上の実際の番号で書き、
+ * トラック名と曲の最初の拍に「Capo N」と書く（Guitar Pro のカポ設定は使わない）。
+ *
  * <p>ファイル形式は TuxGuitar や PyGuitarPro の実装を参考にしている。
  */
 public class Gp5Writer {
@@ -51,15 +54,16 @@ public class Gp5Writer {
         out.writeInt(measures.size());
         out.writeInt(1); // トラック数
         writeMeasureHeaders(out, measures, info.ticksPerQuarter());
-        writeTrack(out, tabScore.tuning());
+        String capoText = tabScore.capo() > 0 ? "Capo " + tabScore.capo() : null;
+        writeTrack(out, tabScore.tuning(), capoText == null ? "Guitar" : "Guitar (" + capoText + ")");
         out.skip(2);
 
         Rhythm rhythm = new Rhythm(info.ticksPerQuarter());
         List<List<Beat>> melodyBeats = rhythm.toBeats(tabScore.melody(), measures);
         List<List<Beat>> bassBeats = rhythm.toBeats(tabScore.bass(), measures);
         for (int i = 0; i < measures.size(); i++) {
-            writeVoice(out, melodyBeats.get(i), false);
-            writeVoice(out, bassBeats.get(i), true);
+            writeVoice(out, melodyBeats.get(i), false, i == 0 ? capoText : null);
+            writeVoice(out, bassBeats.get(i), true, null);
             out.writeByte(0); // 改行なし
         }
         return out.toByteArray();
@@ -150,10 +154,10 @@ public class Gp5Writer {
         return groups;
     }
 
-    private static void writeTrack(LittleEndianWriter out, Tuning tuning) {
+    private static void writeTrack(LittleEndianWriter out, Tuning tuning, String name) {
         out.skip(1);
         out.writeByte(0x08); // 表示するトラック
-        out.byteSizeString("Guitar", 40);
+        out.byteSizeString(name, 40);
         out.writeInt(tuning.stringCount());
         for (int i = 0; i < 7; i++) {
             out.writeInt(i < tuning.stringCount() ? tuning.openPitch(i + 1) : 0);
@@ -162,7 +166,7 @@ public class Gp5Writer {
         out.writeInt(1); // MIDI チャンネル
         out.writeInt(2); // エフェクト用 MIDI チャンネル
         out.writeInt(FRET_COUNT);
-        out.writeInt(0); // カポ
+        out.writeInt(0); // カポ（フレット番号にカポの分を含めているので 0）
         out.writeByte(255); // トラックの色（赤）
         out.writeByte(0);
         out.writeByte(0);
@@ -182,7 +186,9 @@ public class Gp5Writer {
         out.skip(1);
     }
 
-    private static void writeVoice(LittleEndianWriter out, List<Beat> beats, boolean isSecondVoice) {
+    /** @param firstBeatText 最初の拍に付ける文字（なければ null） */
+    private static void writeVoice(LittleEndianWriter out, List<Beat> beats, boolean isSecondVoice,
+                                   String firstBeatText) {
         boolean hasNotes = beats.stream().anyMatch(beat -> beat.note() != null);
         if (isSecondVoice && !hasNotes) {
             // 音のない第2声部は休符も書かず「空」にする
@@ -195,13 +201,16 @@ public class Gp5Writer {
             return;
         }
         out.writeInt(beats.size());
-        for (Beat beat : beats) {
-            writeBeat(out, beat);
+        for (int i = 0; i < beats.size(); i++) {
+            writeBeat(out, beats.get(i), i == 0 ? firstBeatText : null);
         }
     }
 
-    private static void writeBeat(LittleEndianWriter out, Beat beat) {
+    private static void writeBeat(LittleEndianWriter out, Beat beat, String text) {
         int flags = beat.duration().dotted() ? 0x01 : 0x00;
+        if (text != null) {
+            flags |= 0x04;
+        }
         if (beat.note() == null) {
             flags |= 0x40;
         }
@@ -210,6 +219,9 @@ public class Gp5Writer {
             out.writeByte(0x02); // 休符
         }
         out.writeByte(beat.duration().value());
+        if (text != null) {
+            out.intByteSizeString(text);
+        }
         if (beat.note() == null) {
             out.writeByte(0);
         } else {

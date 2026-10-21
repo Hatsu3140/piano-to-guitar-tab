@@ -1,5 +1,6 @@
 package io.github.hatsu3140.pianotab.converter.fret;
 
+import io.github.hatsu3140.pianotab.converter.Difficulty;
 import io.github.hatsu3140.pianotab.converter.model.Arrangement;
 import io.github.hatsu3140.pianotab.converter.model.Note;
 import io.github.hatsu3140.pianotab.converter.model.TabNote;
@@ -19,22 +20,24 @@ import java.util.TreeSet;
  * 候補を全部出し、曲全体で一番弾きやすい組み合わせを選ぶ（動的計画法 = DP）。
  * 弾きやすさは次の「コスト」の合計が小さいほど良いとする。
  * <ul>
- *   <li>同時に押さえる2音のフレットが {@value #MAX_STRETCH} フレットより離れていたら弾けない</li>
+ *   <li>同時に押さえる2音のフレットが上限（難易度で決まる。中級は4フレット）より離れていたら弾けない</li>
  *   <li>前の音からのポジション移動が大きいほど弾きにくい</li>
  *   <li>高いフレット（特に12フレットより上）ほど弾きにくい</li>
  *   <li>メロディがベースより低い弦にくるのは弾きにくい</li>
  * </ul>
  * どう押さえても弾けないときは、弾けない譜面を作らないよう、ベースの音を捨てるか、
  * 伸ばしている音を途中で止める。
+ *
+ * <p>カポを付けたときは、カポの位置を0フレットとして考え、出力するときにカポの分を足す。
  */
 public class FretAssigner {
 
+    /** 難易度を指定しないときに使う一番高いフレット */
     public static final int MAX_FRET = 19;
-    /** 同時に押さえる音のフレットの差の上限 */
+    /** 難易度を指定しないときの、同時に押さえる音のフレットの差の上限 */
     public static final int MAX_STRETCH = 4;
 
     private static final double IMPOSSIBLE = Double.POSITIVE_INFINITY;
-    private static final double MOVE_COST = 1.0;
     private static final double FRET_COST = 0.2;
     private static final double HIGH_FRET_COST = 1.0;
     private static final double STRETCH_COST = 1.0;
@@ -44,9 +47,30 @@ public class FretAssigner {
     private static final double CUT_MELODY_COST = 15.0;
 
     private final Tuning tuning;
+    private final int capo;
+    private final int maxFret;
+    private final int maxStretch;
+    private final double moveCost;
+    private final double frettedBassCost;
 
+    /** カポなし・19フレットまで使う */
     public FretAssigner(Tuning tuning) {
+        this(tuning, 0, MAX_FRET, MAX_STRETCH, 1.0, 0);
+    }
+
+    public FretAssigner(Tuning tuning, int capo, Difficulty difficulty) {
+        this(tuning, capo, difficulty.maxFret(), difficulty.maxStretch(), difficulty.moveCost(),
+                difficulty.frettedBassCost());
+    }
+
+    private FretAssigner(Tuning tuning, int capo, int maxFret, int maxStretch, double moveCost,
+                         double frettedBassCost) {
         this.tuning = tuning;
+        this.capo = capo;
+        this.maxFret = maxFret;
+        this.maxStretch = maxStretch;
+        this.moveCost = moveCost;
+        this.frettedBassCost = frettedBassCost;
     }
 
     public TabScore assign(Arrangement arrangement) {
@@ -59,7 +83,7 @@ public class FretAssigner {
         bass.notes.forEach(note -> startTicks.add(note.startTick()));
         long[] times = startTicks.stream().mapToLong(Long::longValue).toArray();
         if (times.length == 0) {
-            return new TabScore(arrangement.info(), tuning, List.of(), List.of());
+            return new TabScore(arrangement.info(), tuning, capo, List.of(), List.of());
         }
 
         // 各タイミングでの押さえ方の候補
@@ -107,7 +131,7 @@ public class FretAssigner {
             best = previous[i][best];
         }
 
-        return new TabScore(arrangement.info(), tuning,
+        return new TabScore(arrangement.info(), tuning, capo,
                 toTabNotes(melody, chosen, times, true), toTabNotes(bass, chosen, times, false));
     }
 
@@ -134,15 +158,22 @@ public class FretAssigner {
             result.add(null);
             return result;
         }
+        // 音域内でも押さえられない高さがある（例: ドロップD・5フレットまでの G#2）。
+        // そのときは1オクターブずつ上下にずらして、押さえられる高さを探す
         int pitch = fitIntoRange(sounding.note().pitch());
-        for (int string = 1; string <= tuning.stringCount(); string++) {
-            int fret = pitch - tuning.openPitch(string);
-            if (fret >= 0 && fret <= MAX_FRET) {
-                result.add(new Position(string, fret));
+        for (int shift : new int[] {0, 12, -12, 24, -24}) {
+            for (int string = 1; string <= tuning.stringCount(); string++) {
+                int fret = pitch + shift - tuning.openPitch(string) - capo;
+                if (fret >= 0 && fret <= maxFret) {
+                    result.add(new Position(string, fret));
+                }
+            }
+            if (!result.isEmpty()) {
+                break;
             }
         }
-        // 鳴り始めのメロディは必ず弾く。それ以外は止める・捨てる選択肢も残す
-        if (canDrop || !sounding.isNew()) {
+        // 鳴り始めのメロディは必ず弾く（押さえようがないときだけ捨てる）。それ以外は止める・捨てる選択肢も残す
+        if (canDrop || !sounding.isNew() || result.isEmpty()) {
             result.add(null);
         }
         return result;
@@ -160,7 +191,7 @@ public class FretAssigner {
             }
             if (melody.fret() > 0 && bass.fret() > 0) {
                 int stretch = Math.abs(melody.fret() - bass.fret());
-                if (stretch > MAX_STRETCH) {
+                if (stretch > maxStretch) {
                     return IMPOSSIBLE;
                 }
                 total += Math.max(0, stretch - 2) * STRETCH_COST;
@@ -174,7 +205,11 @@ public class FretAssigner {
             total += fretCost(melody.fret());
         }
         if (state.bass() != null && state.bass().isNew()) {
-            total += bass == null ? DROP_BASS_COST : fretCost(bass.fret());
+            if (bass == null) {
+                total += DROP_BASS_COST;
+            } else {
+                total += fretCost(bass.fret()) + (bass.fret() > 0 ? frettedBassCost : 0);
+            }
         }
         return total;
     }
@@ -184,7 +219,7 @@ public class FretAssigner {
     }
 
     /** 前のタイミングの押さえ方から今の押さえ方へ移るコスト */
-    private static double transitionCost(State before, State after) {
+    private double transitionCost(State before, State after) {
         double total = 0;
         // 伸ばしている音は同じ場所を押さえ続ける（止めるのは可）
         if (after.melody() != null && !after.melody().isNew()) {
@@ -204,7 +239,7 @@ public class FretAssigner {
         int handBefore = before.handPosition();
         int handAfter = after.handPosition();
         if (handBefore > 0 && handAfter > 0) {
-            total += Math.abs(handAfter - handBefore) * MOVE_COST;
+            total += Math.abs(handAfter - handBefore) * moveCost;
         }
         return total;
     }
@@ -226,17 +261,19 @@ public class FretAssigner {
                     break;
                 }
             }
-            int pitch = position.fret() + tuning.openPitch(position.string());
+            // 出力するフレットは、カポの分を足したネック上の実際のフレット
+            int fret = position.fret() + capo;
+            int pitch = tuning.openPitch(position.string()) + fret;
             result.add(new TabNote(new Note(pitch, note.startTick(), end - note.startTick()),
-                    position.string(), position.fret()));
+                    position.string(), fret));
         }
         return result;
     }
 
     /** ギターで出せる高さになるまでオクターブ単位で上げ下げする */
     private int fitIntoRange(int pitch) {
-        int lowest = tuning.openStringPitches().stream().min(Integer::compare).orElseThrow();
-        int highest = tuning.openStringPitches().stream().max(Integer::compare).orElseThrow() + MAX_FRET;
+        int lowest = tuning.lowestPitch() + capo;
+        int highest = tuning.highestPitch() + capo + maxFret;
         while (pitch < lowest) {
             pitch += 12;
         }
@@ -301,7 +338,7 @@ public class FretAssigner {
     private record Sounding(Note note, boolean isNew) {
     }
 
-    /** 押さえる場所（弦とフレット） */
+    /** 押さえる場所（弦と、カポを基準にしたフレット） */
     private record Position(int string, int fret) {
     }
 

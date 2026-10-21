@@ -64,4 +64,29 @@ class ConvertControllerTest {
         mockMvc.perform(multipart("/api/convert").file(file))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void acceptsSettings() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "song.musicxml", "application/xml",
+                MUSIC_XML.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/convert").file(file)
+                        .param("difficulty", "BEGINNER")
+                        .param("tuning", "DROP_D")
+                        .param("capo", "3")
+                        .param("transpose", "-2"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void rejectsInvalidSettings() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "song.musicxml", "application/xml",
+                MUSIC_XML.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/convert").file(file).param("capo", "9"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(containsString("カポ")));
+        mockMvc.perform(multipart("/api/convert").file(file).param("difficulty", "EXPERT"))
+                .andExpect(status().isBadRequest());
+    }
 }

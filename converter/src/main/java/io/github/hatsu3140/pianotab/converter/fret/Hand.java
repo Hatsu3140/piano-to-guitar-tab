@@ -57,7 +57,7 @@ public class Hand {
     }
 
     public boolean canPlay(List<TabNote> notes) {
-        return fingering(notes).isPresent();
+        return !byRules(notes).isEmpty() || !shapes(notes).isEmpty();
     }
 
     /**
@@ -72,8 +72,32 @@ public class Hand {
     static final Comparator<Fingering> PREFERENCE = Comparator.comparing(Fingering::usesBarre)
             .thenComparingInt(Fingering::fingerCount);
 
-    /** ルールを守れる押さえ方をすべて挙げる。弾けなければ空 */
+    /**
+     * 押さえ方をすべて挙げる。弾けなければ空。ルールを守れる押さえ方と、よく使うコードの形
+     * （{@link ChordShapes}）どおりの押さえ方。コードの形どおり・それに近い押さえ方には形の名前を付ける
+     */
     public List<Fingering> fingerings(List<TabNote> notes) {
+        List<Fingering> result = new ArrayList<>();
+        for (Fingering fingering : byRules(notes)) {
+            result.add(fingering.withShape(ChordShapes.match(fingering, capo)));
+        }
+        for (Fingering fingering : shapes(notes)) {
+            if (result.stream().noneMatch(found -> found.placements().equals(fingering.placements()))) {
+                result.add(fingering);
+            }
+        }
+        return result;
+    }
+
+    private List<Fingering> shapes(List<TabNote> notes) {
+        if (notes.stream().map(TabNote::string).distinct().count() < notes.size()) {
+            return List.of();
+        }
+        return ChordShapes.fingerings(notes, capo, barre, maxFingers);
+    }
+
+    /** ルールを守れる押さえ方をすべて挙げる */
+    private List<Fingering> byRules(List<TabNote> notes) {
         Set<Integer> strings = new HashSet<>();
         int lowest = Integer.MAX_VALUE;
         int highest = Integer.MIN_VALUE;
@@ -129,6 +153,10 @@ public class Hand {
             spread--;
         }
         return spread;
+    }
+
+    public int capo() {
+        return capo;
     }
 
     /** カポを基準にしたフレット */

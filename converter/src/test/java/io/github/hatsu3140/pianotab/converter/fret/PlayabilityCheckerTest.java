@@ -10,6 +10,7 @@ import java.util.List;
 
 import static io.github.hatsu3140.pianotab.converter.TestScores.ONE_MEASURE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlayabilityCheckerTest {
 
@@ -49,6 +50,37 @@ class PlayabilityCheckerTest {
         assertEquals(1, result.trimmedNotes());
         assertEquals(480, result.tabScore().bass().get(0).note().durationTicks());
         assertEquals(List.of(), new PlayabilityChecker(hand).check(result.tabScore()).fingerSwapTicks());
+    }
+
+    @Test
+    void slidingWholeBarreShapeIsEasierThanPlacingNewFingers() {
+        Fingering f = hand.fingering(barreShape(1)).orElseThrow();
+        Fingering g = hand.fingering(barreShape(3)).orElseThrow();
+        Fingering c = hand.fingering(List.of(note(1, 0, 0, 480), note(2, 1, 0, 480), note(3, 0, 0, 480),
+                note(4, 2, 0, 480), note(5, 3, 0, 480))).orElseThrow();
+
+        assertEquals(0, PlayabilityChecker.movement(f, f));
+        assertTrue(PlayabilityChecker.movement(f, g) < PlayabilityChecker.movement(c, g));
+    }
+
+    @Test
+    void keepsChordShapeWhileMelodyMoves() {
+        // F型セーハを4フレットで押さえたまま、1弦の4と2弦の4を順に鳴らす
+        TabNote bass = note(6, 4, 0, 960);
+        TabScore tab = new TabScore(ONE_MEASURE, Tuning.STANDARD, 0,
+                List.of(note(1, 4, 0, 480), note(2, 4, 480, 480)), List.of(bass),
+                List.of(note(4, 6, 0, 480), note(3, 5, 480, 480)), List.of());
+
+        PlayabilityChecker.Result result = new PlayabilityChecker(hand).check(tab);
+
+        assertEquals(1, result.fingerings().get(0L).fingerOf(bass));
+        assertEquals(4, result.fingerings().get(0L).barreFret());
+        assertEquals(4, result.fingerings().get(480L).barreFret());
+    }
+
+    private static List<TabNote> barreShape(int fret) {
+        return List.of(note(1, fret, 0, 480), note(2, fret, 0, 480), note(3, fret + 1, 0, 480),
+                note(4, fret + 2, 0, 480), note(5, fret + 2, 0, 480), note(6, fret, 0, 480));
     }
 
     private static TabScore swapScore(TabNote held) {

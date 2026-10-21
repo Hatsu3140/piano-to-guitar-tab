@@ -11,8 +11,17 @@ import java.util.stream.Collectors;
  * @param placements 音ごとの指
  * @param barreFret  セーハするフレット（カポ基準）。セーハしないなら 0
  * @param barreTo    セーハで押さえる一番太い弦（1弦からこの弦まで）。セーハしないなら 0
+ * @param shape      よく使うコードの形（{@link ChordShapes}）どおりに押さえるなら、その名前。違えば null
  */
-public record Fingering(List<Placement> placements, int barreFret, int barreTo) {
+public record Fingering(List<Placement> placements, int barreFret, int barreTo, String shape) {
+
+    public Fingering(List<Placement> placements, int barreFret, int barreTo) {
+        this(placements, barreFret, barreTo, null);
+    }
+
+    public Fingering withShape(String name) {
+        return new Fingering(placements, barreFret, barreTo, name);
+    }
 
     /** 人差し指 */
     public static final int INDEX = 1;
@@ -58,10 +67,11 @@ public record Fingering(List<Placement> placements, int barreFret, int barreTo) 
                 .map(placement -> names[placement.finger()] + " " + placement.note().string() + "弦"
                         + placement.note().fret())
                 .collect(Collectors.joining(" / "));
-        if (!usesBarre()) {
-            return notes;
+        String text = notes;
+        if (usesBarre()) {
+            String barre = "人差し指 " + (barreFret + capo) + "フレット セーハ(1〜" + barreTo + "弦)";
+            text = notes.isEmpty() ? barre : barre + " / " + notes;
         }
-        String barre = "人差し指 " + (barreFret + capo) + "フレット セーハ(1〜" + barreTo + "弦)";
-        return notes.isEmpty() ? barre : barre + " / " + notes;
+        return shape == null ? text : text + "（" + shape + "の形）";
     }
 }

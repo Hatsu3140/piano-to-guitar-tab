@@ -7,7 +7,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 
 /**
@@ -17,11 +19,28 @@ import java.util.TreeSet;
  * <p>のばしている音は、押さえている指を途中で変えられない。そこで曲の頭から順に、
  * 「のばしている音の指を変えずに続けられる押さえ方」をつないでいき（動的計画法）、
  * つなげない所（指を入れ替えないと次の音が押さえられない所）も数える。
+ *
+ * <p>つなぎ方は、押さえやすさの合計が一番小さくなるものを選ぶ。
+ * <ul>
+ *   <li>その瞬間の押さえ方: 指が多いほど、セーハするほど難しい。よく使うコードの形なら易しい</li>
+ *   <li>前の押さえ方からの動き: 指ごとに、そのまま（0）・同じ弦の上をずらすだけ（セーハごとずらすのも含む）・
+ *       離して別の所に置き直す、の順に難しい。コードを押さえたままメロディを弾く所は、ほとんど動きがない</li>
+ * </ul>
  */
 public class PlayabilityChecker {
 
+    /** 押さえる指1本あたり */
+    private static final double FINGER_COST = 0.5;
     /** セーハは指1本でも、普通に押さえるより手が疲れるので少し避ける */
-    private static final double BARRE_COST = 2.0;
+    private static final double BARRE_COST = 1.0;
+    /** よく使うコードの形どおりなら易しい */
+    private static final double SHAPE_BONUS = 1.0;
+    /** よく使うコードの形に近い */
+    private static final double SIMILAR_SHAPE_BONUS = 0.5;
+    /** 指を同じ弦の上でずらす */
+    private static final double SLIDE_COST = 0.3;
+    /** 指を離して別の所に置き直す */
+    private static final double PLACE_COST = 1.0;
 
     private final Hand hand;
 
@@ -81,8 +100,12 @@ public class PlayabilityChecker {
                     continue;
                 }
                 for (int i = 0; i < previous.size(); i++) {
-                    if (previousCost[i] + own < cost[j] && keepsFingers(previous.get(i), here.get(j), held)) {
-                        cost[j] = previousCost[i] + own;
+                    if (previousCost[i] + own >= cost[j] || !keepsFingers(previous.get(i), here.get(j), held)) {
+                        continue;
+                    }
+                    double total = previousCost[i] + own + movement(previous.get(i), here.get(j));
+                    if (total < cost[j]) {
+                        cost[j] = total;
                         from[j] = i;
                     }
                 }
@@ -124,8 +147,59 @@ public class PlayabilityChecker {
         return new Result(unplayable.size(), barres, unplayable, swaps, ordered);
     }
 
-    private static double cost(Fingering fingering) {
-        return fingering.fingerCount() + (fingering.usesBarre() ? BARRE_COST : 0);
+    /** その瞬間の押さえ方の難しさ */
+    static double cost(Fingering fingering) {
+        double cost = fingering.fingerCount() * FINGER_COST + (fingering.usesBarre() ? BARRE_COST : 0);
+        if (fingering.shape() != null) {
+            cost -= fingering.shape().endsWith("に近い") ? SIMILAR_SHAPE_BONUS : SHAPE_BONUS;
+        }
+        return Math.max(0, cost);
+    }
+
+    /** 前の押さえ方から今の押さえ方へ、指を動かす難しさ。指ごとに足す（離すだけならかからない） */
+    static double movement(Fingering before, Fingering after) {
+        double total = 0;
+        for (int finger = Fingering.INDEX; finger <= Fingering.PINKY; finger++) {
+            Set<Long> now = positions(after, finger);
+            if (now.isEmpty()) {
+                continue;
+            }
+            Set<Long> then = positions(before, finger);
+            if (then.isEmpty()) {
+                total += PLACE_COST;
+            } else if (!now.equals(then) && !now.stream().allMatch(then::contains)) {
+                total += sameStrings(then, now) ? SLIDE_COST : PLACE_COST;
+            }
+        }
+        return total;
+    }
+
+    /**
+     * 指が押さえている所（弦 × 100 + フレット）。セーハは1弦からセーハの一番太い弦までを押さえている
+     */
+    private static Set<Long> positions(Fingering fingering, int finger) {
+        Set<Long> result = new HashSet<>();
+        if (finger == Fingering.INDEX && fingering.usesBarre()) {
+            for (int string = 1; string <= fingering.barreTo(); string++) {
+                result.add(string * 100L + fingering.barreFret());
+            }
+            return result;
+        }
+        for (Fingering.Placement placement : fingering.placements()) {
+            if (placement.finger() == finger) {
+                result.add(placement.note().string() * 100L + placement.note().fret());
+            }
+        }
+        return result;
+    }
+
+    /** 同じ弦の上を動くだけか */
+    private static boolean sameStrings(Set<Long> before, Set<Long> after) {
+        Set<Long> a = new HashSet<>();
+        before.forEach(position -> a.add(position / 100));
+        Set<Long> b = new HashSet<>();
+        after.forEach(position -> b.add(position / 100));
+        return a.containsAll(b);
     }
 
     private static int cheapest(List<Fingering> fingerings) {

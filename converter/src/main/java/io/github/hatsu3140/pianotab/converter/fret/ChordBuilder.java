@@ -37,10 +37,16 @@ public class ChordBuilder {
     /** 和音を足すのは、メロディが8分音符以上の長さのときだけ */
     private static final int MIN_MELODY_DIVISION = 2;
     private static final int SOFT_STROKE_INTERVAL_MEASURES = 2;
+    /** よく使うコードの形で押さえられる組み合わせを選びやすくする */
+    private static final double SHAPE_BONUS = 1.5;
+    /** 前の和音で押さえていなかった所を押さえる音は、指を動かすので少し避ける */
+    private static final double NEW_POSITION_COST = 0.5;
 
     private final Difficulty difficulty;
     private final Hand hand;
     private final boolean strokesEnabled;
+    /** 前に足した和音で押さえていた所（弦 × 100 + フレット） */
+    private Set<Integer> previousChord = Set.of();
 
     public ChordBuilder(Difficulty difficulty, int capo, boolean barre, boolean strokes) {
         this.difficulty = difficulty;
@@ -101,6 +107,17 @@ public class ChordBuilder {
                     ? choose(tab.tuning(), tab.capo(), top, bass, chordTones, limit - present, stroke != null)
                     : List.of();
             inner.addAll(added);
+            if (!added.isEmpty()) {
+                Set<Integer> chord = new HashSet<>();
+                for (TabNote note : added) {
+                    chord.add(position(note));
+                }
+                chord.add(position(top));
+                if (bass != null) {
+                    chord.add(position(bass));
+                }
+                previousChord = chord;
+            }
             if (stroke != null && present + added.size() >= 3) {
                 strokes.add(stroke);
                 if (stroke.soft()) {
@@ -210,19 +227,30 @@ public class ChordBuilder {
             if (!hand.canPlay(all)) {
                 return;
             }
-            // 音が多いほどよい。同じ数なら、低いフレット・押さえる指が少ない・メロディの音名と重ならない方
+            // 音が多いほどよい。同じ数なら、低いフレット・押さえる指が少ない・メロディの音名と重ならない方。
+            // よく使うコードの形になる方、前の和音から指を動かさずに済む方も選びやすくする
             double cost = -chosen.size() * 100.0 + hand.fingers(all) * 2.0;
             for (TabNote note : chosen) {
                 cost += hand.relativeFret(note) * 0.2;
                 if (Math.floorMod(note.note().pitch(), 12) == melodyClass) {
                     cost += 1.0;
                 }
+                if (note.fret() > hand.capo() && !previousChord.contains(position(note))) {
+                    cost += NEW_POSITION_COST;
+                }
+            }
+            if (hand.fingerings(all).stream().anyMatch(f -> f.shape() != null && !f.shape().endsWith("に近い"))) {
+                cost -= SHAPE_BONUS;
             }
             if (cost < bestCost) {
                 bestCost = cost;
                 best = List.copyOf(chosen);
             }
         }
+    }
+
+    private static int position(TabNote note) {
+        return note.string() * 100 + note.fret();
     }
 
     private static Set<Integer> pitchClasses(List<Note> harmony, TabNote top, TabNote bass, long start) {

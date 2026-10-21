@@ -31,7 +31,7 @@ class HandTest {
 
         assertEquals(1, fingering.barreFret());
         assertEquals(2, fingering.barreTo());
-        assertEquals("人差し指 1フレット セーハ(1〜2弦) / 中指 3弦2 / 薬指 5弦3 / 小指 4弦3",
+        assertEquals("人差し指 1フレット セーハ(1〜2弦) / 中指 3弦2 / 薬指 5弦3 / 小指 4弦3（F型セーハの形）",
                 fingering.describe(0));
     }
 
@@ -42,7 +42,7 @@ class HandTest {
         Fingering fingering = new Hand(0, 4, 4, true).fingering(c).orElseThrow();
 
         assertFalse(fingering.usesBarre());
-        assertEquals("開放 1弦0 / 開放 3弦0 / 人差し指 2弦1 / 中指 4弦2 / 薬指 5弦3", fingering.describe(0));
+        assertEquals("開放 1弦0 / 開放 3弦0 / 人差し指 2弦1 / 中指 4弦2 / 薬指 5弦3（Cの形）", fingering.describe(0));
     }
 
     @Test
@@ -51,8 +51,29 @@ class HandTest {
         List<TabNote> e = List.of(note(1, 4), note(2, 4), note(3, 5), note(4, 6), note(5, 6), note(6, 4));
         Fingering fingering = new Hand(2, 4, 4, true).fingering(e).orElseThrow();
 
-        assertEquals("人差し指 4フレット セーハ(1〜6弦) / 中指 3弦5 / 薬指 5弦6 / 小指 4弦6",
+        assertEquals("人差し指 4フレット セーハ(1〜6弦) / 中指 3弦5 / 薬指 5弦6 / 小指 4弦6（F型セーハの形）",
                 fingering.describe(2));
+    }
+
+    @Test
+    void knowsCommonChordShapes() {
+        Hand hand = new Hand(0, 4, 4, true);
+        // G のコードの一部（6弦3・4弦開放・1弦3）は、ルールでは押さえられない形でも、G の形として押さえられる
+        Fingering g = hand.fingering(List.of(note(1, 3), note(4, 0), note(6, 3))).orElseThrow();
+
+        assertEquals("G", g.shape());
+        // 同じ形をカポ2で
+        assertTrue(new Hand(2, 4, 4, true).canPlay(List.of(note(1, 5), note(4, 2), note(6, 5))));
+    }
+
+    @Test
+    void movesBarreShapesAlongTheNeck() {
+        // B♭型セーハを3フレットに（C）
+        Fingering c = new Hand(0, 4, 4, true)
+                .fingering(List.of(note(1, 3), note(2, 5), note(3, 5), note(4, 5), note(5, 3))).orElseThrow();
+
+        assertEquals("B♭型セーハ", c.shape());
+        assertEquals(3, c.barreFret());
     }
 
     @Test
@@ -106,8 +127,8 @@ class HandTest {
     void cannotPressOneFretWithFingersFarApart() {
         Hand hand = new Hand(0, 4, 4, true);
 
-        // 6弦3と1弦3を人差し指と中指で（4弦は開放なのでセーハもできない）
-        assertFalse(hand.canPlay(List.of(note(1, 3), note(4, 0), note(6, 3))));
+        // 6弦5と1弦5を人差し指と中指で（4弦は開放なのでセーハもできない）
+        assertFalse(hand.canPlay(List.of(note(1, 5), note(4, 0), note(6, 5))));
         // A のように隣の弦なら並べられる
         assertTrue(hand.canPlay(List.of(note(2, 2), note(3, 2), note(4, 2))));
     }

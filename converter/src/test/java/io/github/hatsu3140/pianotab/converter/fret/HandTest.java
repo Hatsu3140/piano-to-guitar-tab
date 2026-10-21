@@ -45,6 +45,18 @@ class HandTest {
     }
 
     @Test
+    void assignsFingersInOrderOfFrets() {
+        Hand hand = new Hand(0, 4, 4, true);
+
+        // 人差し指 3弦5・中指 4弦6・薬指 5弦6 のあと、小指で 2弦9 は遠すぎる（薬指から3フレット）
+        assertFalse(hand.canPlay(List.of(note(2, 9), note(3, 5), note(4, 6), note(5, 6))));
+        // 人差し指 5・中指 6・小指 9 なら届く
+        assertTrue(hand.canPlay(List.of(note(2, 9), note(3, 5), note(4, 6))));
+        // 2音なら人差し指と小指で4フレット離せる
+        assertTrue(hand.canPlay(List.of(note(1, 8), note(6, 4))));
+    }
+
+    @Test
     void barreCoversStringsUpToTheFirst() {
         // 2・3弦の1フレットをセーハすると1弦も押さえるので、1弦の開放は鳴らせない
         List<TabNote> notes = List.of(note(1, 0), note(2, 1), note(3, 1));

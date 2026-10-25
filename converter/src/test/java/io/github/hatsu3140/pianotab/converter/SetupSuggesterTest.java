@@ -2,6 +2,7 @@ package io.github.hatsu3140.pianotab.converter;
 
 import io.github.hatsu3140.pianotab.converter.model.Note;
 import io.github.hatsu3140.pianotab.converter.model.Score;
+import io.github.hatsu3140.pianotab.converter.model.TabNote;
 import io.github.hatsu3140.pianotab.converter.model.Tuning;
 import org.junit.jupiter.api.Test;
 
@@ -56,5 +57,15 @@ class SetupSuggesterTest {
         assertTrue(SetupSuggester.isOpenBassString(52, Tuning.STANDARD, 0)); // 1オクターブ上の E でもよい
         assertFalse(SetupSuggester.isOpenBassString(43, Tuning.STANDARD, 0));
         assertTrue(SetupSuggester.isOpenBassString(43, Tuning.STANDARD, 3));
+    }
+
+    @Test
+    void measuresMelodyHandMovementWithoutOpenStrings() {
+        // カポ2: 1弦5 → 開放弦（ネック上の2フレット）→ 1弦7 → 2弦4。開放弦は飛ばすので、移動は 2 と 3 の平均
+        List<TabNote> melody = List.of(
+                new TabNote(new Note(69, 0, 480), 1, 5), new TabNote(new Note(66, 480, 480), 1, 2),
+                new TabNote(new Note(71, 960, 480), 1, 7), new TabNote(new Note(63, 1440, 480), 2, 4));
+
+        assertEquals(2.5, SetupSuggester.averageMelodyMove(melody, 2), 1e-9);
     }
 }

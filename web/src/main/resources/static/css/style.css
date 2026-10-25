@@ -151,3 +151,69 @@ button:disabled {
     color: var(--muted);
     font-size: 0.85rem;
 }
+
+/* ファイルのドラッグ＆ドロップ先。ファイルを重ねているあいだは枠を目立たせる */
+.drop-zone {
+    padding: 16px;
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+}
+
+.drop-zone.dragging {
+    border-color: var(--accent);
+    background: var(--bg);
+}
+
+.drop-hint {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+/* 変換結果の TAB 譜。ほかの欄より横に広げて、1段に何小節か並ぶようにする */
+.result {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: min(1000px, calc(100vw - 32px));
+    margin: 24px 0 24px calc(50% - min(500px, 50vw - 16px));
+}
+
+.player-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+button.secondary {
+    border: 1px solid var(--accent);
+    background: var(--card);
+    color: var(--accent);
+}
+
+.player-status {
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.tab-view {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+/* 再生中の位置（alphaTab が付けるクラス） */
+.tab-view .at-cursor-bar {
+    background: rgba(181, 86, 43, 0.1);
+}
+
+.tab-view .at-cursor-beat {
+    width: 3px;
+    background: var(--accent);
+}
+
+.tab-view .at-highlight * {
+    fill: var(--accent);
+    stroke: var(--accent);
+}

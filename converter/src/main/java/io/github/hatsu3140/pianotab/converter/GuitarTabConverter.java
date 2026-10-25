@@ -40,8 +40,13 @@ public class GuitarTabConverter {
 
     public ConversionResult convert(InputStream musicXml, ConversionOptions options)
             throws IOException, MusicXmlFormatException {
+        return convert(parser.parse(musicXml), options);
+    }
+
+    /** 読み込み済みの楽譜を変換する（同じ曲を設定を変えて何度も変換するときに使う） */
+    public ConversionResult convert(Score original, ConversionOptions options) {
         Difficulty difficulty = options.difficulty();
-        Score score = parser.parse(musicXml).transpose(options.transpose());
+        Score score = original.transpose(options.transpose());
         Arrangement arrangement = voiceExtractor.extract(score);
         arrangement = new BassSimplifier(difficulty.bassRhythm()).simplify(arrangement);
         arrangement = new OctavePlacer(options.tuning(), options.capo(), difficulty.maxFret()).place(arrangement);

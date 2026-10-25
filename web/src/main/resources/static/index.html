@@ -15,6 +15,13 @@
         <label for="file-input" class="label">MusicXML ファイル（.musicxml / .xml / .mxl）</label>
         <input id="file-input" name="file" type="file" accept=".musicxml,.xml,.mxl" required>
 
+        <!-- ファイルを選ぶと、曲に合うチューニングとカポを調べて表示する -->
+        <section id="suggestions" class="suggestions" hidden>
+            <p class="label">おすすめのチューニングとカポ</p>
+            <p id="suggestion-status" class="suggestion-status"></p>
+            <ol id="suggestion-list" class="suggestion-list"></ol>
+        </section>
+
         <div class="settings">
             <label for="difficulty" class="label">難易度</label>
             <select id="difficulty" name="difficulty">
@@ -28,6 +35,10 @@
             <select id="tuning" name="tuning">
                 <option value="STANDARD" selected>レギュラー（EADGBE）</option>
                 <option value="DROP_D">ドロップD（DADGBE）</option>
+                <option value="DADGAD">DADGAD</option>
+                <option value="OPEN_D">オープンD（DADF#AD）</option>
+                <option value="OPEN_G">オープンG（DGDGBD）</option>
+                <option value="CGDGBD">CGDGBD</option>
             </select>
 
             <label for="capo" class="label">カポ</label>

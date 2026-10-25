@@ -98,3 +98,56 @@ button:disabled {
     padding-left: 1.2em;
     color: var(--muted);
 }
+
+/* チューニングとカポのおすすめ */
+.suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.suggestions .label,
+.suggestion-status {
+    margin: 0;
+}
+
+.suggestion-status {
+    color: var(--muted);
+}
+
+.suggestion-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* 候補はボタンだが、ふつうのボタンより控えめにして、選んだものだけ枠を目立たせる */
+.suggestion {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--card);
+    color: var(--text);
+    text-align: left;
+    font-size: 0.95rem;
+}
+
+.suggestion.chosen {
+    border: 2px solid var(--accent);
+}
+
+.suggestion-title {
+    font-weight: bold;
+}
+
+.suggestion-reasons {
+    color: var(--muted);
+    font-size: 0.85rem;
+}

@@ -82,6 +82,17 @@ class ConvertControllerTest {
     }
 
     @Test
+    void acceptsOpenTunings() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "song.musicxml", "application/xml",
+                MUSIC_XML.getBytes(StandardCharsets.UTF_8));
+
+        for (String tuning : new String[] {"DADGAD", "OPEN_D", "OPEN_G", "CGDGBD"}) {
+            mockMvc.perform(multipart("/api/convert").file(file).param("tuning", tuning))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Test
     void rejectsInvalidSettings() throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "song.musicxml", "application/xml",
                 MUSIC_XML.getBytes(StandardCharsets.UTF_8));
@@ -91,5 +102,28 @@ class ConvertControllerTest {
                 .andExpect(jsonPath("$.message").value(containsString("カポ")));
         mockMvc.perform(multipart("/api/convert").file(file).param("difficulty", "EXPERT"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void suggestsTuningAndCapo() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "song.musicxml", "application/xml",
+                MUSIC_XML.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/suggest").file(file).param("difficulty", "ADVANCED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.suggestions.length()").value(3))
+                .andExpect(jsonPath("$.suggestions[0].tuning").exists())
+                .andExpect(jsonPath("$.suggestions[0].capo").exists())
+                .andExpect(jsonPath("$.suggestions[0].reasons[0]").exists());
+    }
+
+    @Test
+    void suggestRejectsOtherFileTypes() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "song.pdf", "application/pdf",
+                new byte[] {1, 2, 3});
+
+        mockMvc.perform(multipart("/api/suggest").file(file))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").exists());
     }
 }

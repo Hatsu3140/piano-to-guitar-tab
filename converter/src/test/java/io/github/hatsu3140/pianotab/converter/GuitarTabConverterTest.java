@@ -54,6 +54,21 @@ class GuitarTabConverterTest {
     }
 
     @Test
+    void convertsWithEveryTuning() throws Exception {
+        for (Tuning tuning : Tuning.PRESETS.values()) {
+            for (Difficulty difficulty : Difficulty.values()) {
+                ConversionResult result = convert(new ConversionOptions(difficulty, tuning, 0, 0));
+
+                assertEquals(tuning, result.tabScore().tuning());
+                assertEquals(0, result.report().unplayablePlaces());
+                for (TabNote note : result.tabScore().notes()) {
+                    assertEquals(note.note().pitch(), tuning.openPitch(note.string()) + note.fret());
+                }
+            }
+        }
+    }
+
+    @Test
     void rejectsCapoOutOfRange() {
         assertThrows(IllegalArgumentException.class,
                 () -> new ConversionOptions(Difficulty.INTERMEDIATE, Tuning.STANDARD, 8, 0));

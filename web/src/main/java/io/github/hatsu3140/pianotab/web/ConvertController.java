@@ -4,6 +4,8 @@ import io.github.hatsu3140.pianotab.converter.ConversionOptions;
 import io.github.hatsu3140.pianotab.converter.ConversionResult;
 import io.github.hatsu3140.pianotab.converter.Difficulty;
 import io.github.hatsu3140.pianotab.converter.GuitarTabConverter;
+import io.github.hatsu3140.pianotab.converter.SetupSuggester;
+import io.github.hatsu3140.pianotab.converter.SetupSuggestion;
 import io.github.hatsu3140.pianotab.converter.model.Tuning;
 import io.github.hatsu3140.pianotab.converter.musicxml.MusicXmlFormatException;
 import org.springframework.http.ContentDisposition;
@@ -25,6 +27,8 @@ import java.util.Locale;
 /**
  * 画面からアップロードされた MusicXML と設定を受け取り、.gp5 ファイルにして返す API。
  * 変換レポートの説明文は、ヘッダー X-Conversion-Report に（1行ずつ改行で区切り、URL エンコードして）入れる。
+ *
+ * <p>/api/suggest は、同じ曲に合うチューニングとカポの組み合わせを、良い順に JSON で返す。
  */
 @RestController
 public class ConvertController {
@@ -33,9 +37,11 @@ public class ConvertController {
     static final String REPORT_HEADER = "X-Conversion-Report";
 
     private final GuitarTabConverter converter;
+    private final SetupSuggester suggester;
 
     public ConvertController(GuitarTabConverter converter) {
         this.converter = converter;
+        this.suggester = new SetupSuggester(converter);
     }
 
     @PostMapping("/api/convert")
@@ -80,6 +86,39 @@ public class ConvertController {
                 .header(REPORT_HEADER, URLEncoder.encode(String.join("\n", result.report().messages()),
                         StandardCharsets.UTF_8).replace("+", "%20"))
                 .body(result.gp5());
+    }
+
+    @PostMapping("/api/suggest")
+    public ResponseEntity<?> suggest(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(name = "difficulty", defaultValue = "INTERMEDIATE") String difficulty,
+            @RequestParam(name = "transpose", defaultValue = "0") int transpose,
+            @RequestParam(name = "barre", defaultValue = "true") boolean barre,
+            @RequestParam(name = "strokes", defaultValue = "true") boolean strokes) throws IOException {
+        if (file.isEmpty()) {
+            return badRequest("ファイルが空です。");
+        }
+        if (extensionOf(file.getOriginalFilename() == null ? "" : file.getOriginalFilename()) == null) {
+            return badRequest("MusicXML ファイル（.musicxml / .xml / .mxl）を選んでください。");
+        }
+
+        ConversionOptions base;
+        try {
+            base = new ConversionOptions(parseDifficulty(difficulty), Tuning.STANDARD, 0, transpose, barre, strokes);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
+        }
+
+        List<SetupSuggestion> suggestions;
+        try (InputStream in = file.getInputStream()) {
+            suggestions = suggester.suggest(in, base, SetupSuggester.DEFAULT_LIMIT);
+        } catch (MusicXmlFormatException e) {
+            return badRequest("読み込めませんでした: " + e.getMessage());
+        }
+        return ResponseEntity.ok(new SuggestResponse(suggestions.stream()
+                .map(suggestion -> new SuggestResponse.Item(suggestion.tuning(), suggestion.capo(),
+                        suggestion.reasons()))
+                .toList()));
     }
 
     private static Difficulty parseDifficulty(String value) {

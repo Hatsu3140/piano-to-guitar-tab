@@ -15,6 +15,13 @@
         <label for="file-input" class="label">MusicXML ファイル（.musicxml / .xml / .mxl）</label>
         <input id="file-input" name="file" type="file" accept=".musicxml,.xml,.mxl" required>
 
+        <!-- ファイルを選ぶと、曲に合うチューニングとカポを調べて表示する -->
+        <section id="suggestions" class="suggestions" hidden>
+            <p class="label">おすすめのチューニングとカポ</p>
+            <p id="suggestion-status" class="suggestion-status"></p>
+            <ol id="suggestion-list" class="suggestion-list"></ol>
+        </section>
+
         <div class="settings">
             <label for="difficulty" class="label">難易度</label>
             <select id="difficulty" name="difficulty">

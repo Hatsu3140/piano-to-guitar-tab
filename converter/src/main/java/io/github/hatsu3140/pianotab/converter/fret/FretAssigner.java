@@ -24,6 +24,8 @@ import java.util.TreeSet;
  *   <li>前の音からのポジション移動が大きいほど弾きにくい。次の音までの時間が短い（8分音符より速い）ほど、さらに弾きにくい</li>
  *   <li>高いフレット（特に12フレットより上）ほど弾きにくい</li>
  *   <li>メロディがベースより低い弦にくるのは弾きにくい</li>
+ *   <li>メロディが高いポジション（5フレット以上）で弾かれているのに、次の音だけ開放弦に飛ぶのは避ける
+ *       （開放弦は押さえなくてよいが、音色が急に変わって不自然。ベースの開放弦はそのまま使う）</li>
  * </ul>
  * どう押さえても弾けないときは、弾けない譜面を作らないよう、ベースの音を捨てるか、
  * 伸ばしている音を途中で止める。
@@ -46,6 +48,9 @@ public class FretAssigner {
     private static final double CUT_BASS_COST = 10.0;
     private static final double CUT_MELODY_COST = 15.0;
     private static final double FAST_JUMP_COST = 2.0;
+    /** メロディがこのフレット以上で弾かれているときに、次の音だけ開放弦に飛ぶのは避ける */
+    private static final int HIGH_POSITION = 5;
+    private static final double OPEN_MELODY_IN_HIGH_POSITION_COST = 3.0;
 
     private final Tuning tuning;
     private final int capo;
@@ -252,6 +257,16 @@ public class FretAssigner {
         }
         int handBefore = before.handPosition();
         int handAfter = after.handPosition();
+        // メロディが高いポジションで弾かれている所で、1音だけ開放弦をはさむのは避ける。
+        // 休符をはさむと前の音が見えないので、「高い→開放弦」と「開放弦→高い」の両方を数える
+        int melodyBefore = melodyFret(before);
+        int melodyAfter = melodyFret(after);
+        if (melodyBefore >= HIGH_POSITION && melodyAfter == 0 && after.melody().isNew()) {
+            total += openMelodyCost(melodyBefore, speed);
+        }
+        if (melodyBefore == 0 && before.melody().isNew() && melodyAfter >= HIGH_POSITION && after.melody().isNew()) {
+            total += openMelodyCost(melodyAfter, speed);
+        }
         if (handBefore > 0 && handAfter > 0) {
             int jump = Math.abs(handAfter - handBefore);
             total += jump * moveCost * speed;
@@ -261,6 +276,16 @@ public class FretAssigner {
             }
         }
         return total;
+    }
+
+    /** メロディを押さえているフレット（開放弦なら 0、メロディが鳴っていなければ -1） */
+    private static int melodyFret(State state) {
+        return state.melody() == null || state.melodyPosition() == null ? -1 : state.melodyPosition().fret();
+    }
+
+    /** 高いポジション（fret）と開放弦のあいだを行き来する減点。開放弦では手の移動を数えないので、その分も足す */
+    private double openMelodyCost(int fret, double speed) {
+        return OPEN_MELODY_IN_HIGH_POSITION_COST + (fret - HIGH_POSITION) * moveCost * speed;
     }
 
     /** DP の結果から TabNote の一覧を作る。途中で止めた音は短くする */

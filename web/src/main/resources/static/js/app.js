@@ -7,7 +7,6 @@ const statusText = document.getElementById('status');
 const reportList = document.getElementById('report');
 const barreCheck = document.getElementById('barre');
 const strokesCheck = document.getElementById('strokes');
-const difficultySelect = document.getElementById('difficulty');
 const tuningSelect = document.getElementById('tuning');
 const capoSelect = document.getElementById('capo');
 const transposeInput = document.getElementById('transpose');
@@ -20,7 +19,6 @@ let suggestRequest = 0;
 
 // ファイルや設定を変えたら、曲に合うチューニングとカポを調べ直す
 fileInput.addEventListener('change', suggestSetup);
-difficultySelect.addEventListener('change', suggestSetup);
 transposeInput.addEventListener('change', suggestSetup);
 barreCheck.addEventListener('change', suggestSetup);
 strokesCheck.addEventListener('change', suggestSetup);
@@ -35,7 +33,7 @@ form.addEventListener('submit', async (event) => {
         return;
     }
 
-    // ファイルと設定（難易度・チューニング・カポ・移調・奏法）をまとめて送る。
+    // ファイルと設定（チューニング・カポ・移調・奏法）をまとめて送る。
     // チェックボックスはチェックを外すと送られないので、true / false をはっきり入れる
     const formData = new FormData(form);
     formData.set('barre', barreCheck.checked);
@@ -74,7 +72,6 @@ async function suggestSetup() {
     const request = ++suggestRequest;
     const formData = new FormData();
     formData.set('file', file);
-    formData.set('difficulty', difficultySelect.value);
     formData.set('transpose', transposeInput.value);
     formData.set('barre', barreCheck.checked);
     formData.set('strokes', strokesCheck.checked);

@@ -149,4 +149,19 @@ class FretAssignerTest {
 
         assertEquals(56, tab.melody().get(0).note().pitch());
     }
+
+    @Test
+    void avoidsOpenStringMelodyInHighPosition() {
+        // D5 → E4 → F5（8分音符）。D5 と F5 は高いポジション（10・13フレット）なので、
+        // 間の E4 を1弦の開放弦にせず、近くのフレット（2弦5 や 3弦9）で押さえる
+        Arrangement arrangement = new Arrangement(ONE_MEASURE,
+                List.of(new Note(74, 0, 240), new Note(64, 240, 240), new Note(77, 480, 240)),
+                List.of());
+
+        TabScore tab = new FretAssigner(Tuning.STANDARD, 0, Difficulty.ADVANCED).assign(arrangement);
+
+        TabNote middle = tab.melody().get(1);
+        assertEquals(64, middle.note().pitch());
+        assertNotEquals(0, middle.fret());
+    }
 }

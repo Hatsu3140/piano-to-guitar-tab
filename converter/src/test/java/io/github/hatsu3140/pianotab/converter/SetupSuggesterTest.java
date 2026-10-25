@@ -20,19 +20,18 @@ class SetupSuggesterTest {
 
     @Test
     void prefersCapoThatMakesBassOpenStrings() {
-        // ベースが G・C・F・G。レギュラーにカポ3なら、6・5・4弦の開放弦が G・C・F になる。
-        // メロディ（C・F）は、レギュラー＋カポ3では開放弦にならないが、それでもベースの開放弦の方が重く見られる
+        // ベースが G・C・F・G。レギュラーにカポ3なら、6・5・4弦の開放弦が G・C・F になる
+        // （CGDGBD にカポ5でも F・C・G になる）。どちらもベースを全部開放弦で弾けるので上位に来る
         Score score = new Score(TestScores.ONE_MEASURE, List.of(), List.of(
                 new Note(72, 0, 480), new Note(77, 480, 480), new Note(72, 960, 480), new Note(77, 1440, 480)),
                 List.of(new Note(43, 0, 480), new Note(48, 480, 480), new Note(41, 960, 480), new Note(43, 1440, 480)));
 
         List<SetupSuggestion> suggestions = new SetupSuggester().suggest(score, ADVANCED, 3);
 
-        SetupSuggestion best = suggestions.get(0);
-        assertEquals("STANDARD", best.tuning());
-        assertEquals(3, best.capo());
-        assertEquals(100, best.openBassPercent());
-        assertEquals("ベースの 100% を開放弦で弾けます", best.reasons().get(0));
+        assertEquals(100, suggestions.get(0).openBassPercent());
+        assertEquals("ベースの 100% を開放弦で弾けます", suggestions.get(0).reasons().get(0));
+        assertTrue(suggestions.stream().anyMatch(suggestion ->
+                suggestion.tuning().equals("STANDARD") && suggestion.capo() == 3));
     }
 
     @Test

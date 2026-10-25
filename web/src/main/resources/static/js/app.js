@@ -1,5 +1,5 @@
 // 「変換する」ボタンが押されたら、選んだファイルをサーバー（/api/convert）に送り、
-// 返ってきた .gp5 ファイルをダウンロードする
+// 返ってきた .gp5 ファイルを TAB 譜として画面に表示する。ダウンロードはボタンで行う
 const form = document.getElementById('upload-form');
 const fileInput = document.getElementById('file-input');
 const submitButton = document.getElementById('submit-button');
@@ -13,6 +13,20 @@ const transposeInput = document.getElementById('transpose');
 const suggestionsSection = document.getElementById('suggestions');
 const suggestionStatus = document.getElementById('suggestion-status');
 const suggestionList = document.getElementById('suggestion-list');
+const dropZone = document.getElementById('drop-zone');
+const resultSection = document.getElementById('result');
+const tabView = document.getElementById('tab-view');
+const playButton = document.getElementById('play-button');
+const stopButton = document.getElementById('stop-button');
+const downloadButton = document.getElementById('download-button');
+const playerStatus = document.getElementById('player-status');
+
+// alphaTab（TAB 譜の表示と再生）のフォントと音源の置き場所。index.html で読み込んだものと同じ版にする
+const ALPHATAB_BASE = 'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.4/dist/';
+
+// 表示中の TAB 譜（ダウンロード用）と、alphaTab 本体（最初の表示のときに作る）
+let converted = null;
+let tabApi = null;
 
 // 何回目に調べ始めたか。設定を続けて変えたとき、古い結果で上書きしないために使う
 let suggestRequest = 0;
@@ -50,8 +64,9 @@ form.addEventListener('submit', async (event) => {
             return;
         }
         const gp5Name = file.name.replace(/\.(musicxml|xml|mxl)$/i, '') + '.gp5';
-        downloadFile(await response.blob(), gp5Name);
-        showStatus(`${gp5Name} をダウンロードしました。TuxGuitar などで開いてください。`, false);
+        converted = { blob: await response.blob(), name: gp5Name };
+        showStatus('変換しました。下の TAB 譜を確かめて、よければダウンロードしてください。', false);
+        showTab(await converted.blob.arrayBuffer());
         const report = response.headers.get('X-Conversion-Report');
         showReport(report ? decodeURIComponent(report).split('\n') : []);
     } catch (error) {
@@ -154,6 +169,71 @@ function describeSetup(suggestion) {
     const capoName = suggestion.capo === 0 ? 'カポなし' : `カポ ${capoOption.textContent}`;
     return `${tuningName}・${capoName}`;
 }
+
+// 変換した .gp5 を alphaTab で表示する。alphaTab が読み込めなかったとき（ネットにつながっていないなど）は、
+// 表示はあきらめてダウンロードだけできるようにする
+function showTab(gp5) {
+    resultSection.hidden = false;
+    if (typeof alphaTab === 'undefined') {
+        playerStatus.textContent = 'TAB 譜を表示できませんでした（表示用の部品を読み込めませんでした）。ダウンロードはできます。';
+        return;
+    }
+    if (!tabApi) {
+        tabApi = createTabApi();
+    }
+    tabApi.stop();
+    playButton.disabled = true;
+    stopButton.disabled = true;
+    playerStatus.textContent = '音源を読み込んでいます…';
+    tabApi.load(new Uint8Array(gp5));
+}
+
+function createTabApi() {
+    const api = new alphaTab.AlphaTabApi(tabView, {
+        core: { fontDirectory: ALPHATAB_BASE + 'font/' },
+        display: { scale: 0.9 },
+        // 左端の楽器名は、狭い画面だと途中で切れて読めないので出さない
+        notation: { elements: { trackNames: false } },
+        player: {
+            enablePlayer: true,
+            soundFont: ALPHATAB_BASE + 'soundfont/sonivox.sf2',
+            scrollElement: document.scrollingElement,
+        },
+    });
+    // 音源の読み込みが終わったら再生できるようにする（1回目だけ時間がかかる）
+    api.playerReady.on(() => {
+        playButton.disabled = false;
+        stopButton.disabled = false;
+        playerStatus.textContent = '';
+    });
+    api.playerStateChanged.on((event) => {
+        playButton.textContent = event.state === alphaTab.synth.PlayerState.Playing ? '一時停止' : '再生';
+    });
+    api.error.on(() => {
+        playerStatus.textContent = 'TAB 譜の表示か再生でエラーが起きました。ダウンロードしたファイルは TuxGuitar などで開けます。';
+    });
+    return api;
+}
+
+playButton.addEventListener('click', () => tabApi.playPause());
+stopButton.addEventListener('click', () => tabApi.stop());
+downloadButton.addEventListener('click', () => downloadFile(converted.blob, converted.name));
+
+// ファイルをドラッグ＆ドロップしても選べるようにする。ドロップしたファイルを入力欄に入れ、選んだときと同じ処理をする
+dropZone.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    dropZone.classList.add('dragging');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragging'));
+dropZone.addEventListener('drop', (event) => {
+    event.preventDefault();
+    dropZone.classList.remove('dragging');
+    if (event.dataTransfer.files.length === 0) {
+        return;
+    }
+    fileInput.files = event.dataTransfer.files;
+    fileInput.dispatchEvent(new Event('change'));
+});
 
 // 受け取ったデータを、リンクをクリックしたことにしてダウンロードさせる
 function downloadFile(blob, fileName) {

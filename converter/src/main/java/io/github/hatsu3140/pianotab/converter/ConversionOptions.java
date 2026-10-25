@@ -18,9 +18,12 @@ public record ConversionOptions(Difficulty difficulty, Tuning tuning, int capo, 
     public static final int MAX_CAPO = 7;
     public static final int MAX_TRANSPOSE = 12;
 
-    /** 何も指定しないときの設定（中級・レギュラーチューニング・カポなし・移調なし・セーハあり・ストロークあり） */
+    /**
+     * 何も指定しないときの設定（上級・レギュラーチューニング・カポなし・移調なし・セーハあり・ストロークあり）。
+     * 難易度は当面、上級の設定を標準の1種類として使う
+     */
     public static final ConversionOptions DEFAULT =
-            new ConversionOptions(Difficulty.INTERMEDIATE, Tuning.STANDARD, 0, 0);
+            new ConversionOptions(Difficulty.ADVANCED, Tuning.STANDARD, 0, 0);
 
     /** セーハ・ストロークありの設定 */
     public ConversionOptions(Difficulty difficulty, Tuning tuning, int capo, int transpose) {

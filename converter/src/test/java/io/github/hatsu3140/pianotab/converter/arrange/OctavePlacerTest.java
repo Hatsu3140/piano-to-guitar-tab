@@ -81,4 +81,26 @@ class OctavePlacerTest {
         assertEquals(List.of(new Note(66, 0, 480), new Note(64, 480, 480), new Note(64, 960, 960)), placed.melody());
         assertEquals(List.of(new Note(55, 0, 480)), placed.bass());
     }
+
+    @Test
+    void movesAWholePhraseInsteadOfOneNote() {
+        // フレーズA（C4 D4 E4）のあと休符をはさみ、フレーズB（8分音符で G4 A4 B4、8分休符、F5 E5 D5）。
+        // F5 は12フレットまででは出せない。8分休符はフレーズの区切りではないので、後半だけを下げず、
+        // フレーズBを丸ごと1オクターブ下げる（G3 は少し低いが、フレーズの途中で切り替えるよりよい）。フレーズAはそのまま
+        List<Note> phraseA = List.of(new Note(60, 0, 480), new Note(62, 480, 480), new Note(64, 960, 480));
+        int[] phraseB = {67, 69, 71, 77, 76, 74};
+        List<Note> melody = new java.util.ArrayList<>(phraseA);
+        for (int i = 0; i < phraseB.length; i++) {
+            long start = 2400 + (i < 3 ? i : i + 1) * 240L;
+            melody.add(new Note(phraseB[i], start, 240));
+        }
+        Arrangement arrangement = new Arrangement(ONE_MEASURE, melody, List.of());
+
+        List<Note> placed = placer.place(arrangement).melody();
+
+        assertEquals(phraseA, placed.subList(0, 3));
+        for (int i = 0; i < phraseB.length; i++) {
+            assertEquals(phraseB[i] - 12, placed.get(3 + i).pitch());
+        }
+    }
 }

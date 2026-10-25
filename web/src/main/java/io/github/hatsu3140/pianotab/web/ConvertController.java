@@ -35,6 +35,11 @@ public class ConvertController {
 
     private static final List<String> EXTENSIONS = List.of(".musicxml", ".xml", ".mxl");
     static final String REPORT_HEADER = "X-Conversion-Report";
+    /**
+     * 難易度は当面、画面では選ばず、この1種類で変換する（難易度の作り分けは、標準の変換を仕上げてから考える）。
+     * API では今も difficulty で指定できる
+     */
+    static final String STANDARD_DIFFICULTY = "ADVANCED";
 
     private final GuitarTabConverter converter;
     private final SetupSuggester suggester;
@@ -47,7 +52,7 @@ public class ConvertController {
     @PostMapping("/api/convert")
     public ResponseEntity<?> convert(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(name = "difficulty", defaultValue = "INTERMEDIATE") String difficulty,
+            @RequestParam(name = "difficulty", defaultValue = STANDARD_DIFFICULTY) String difficulty,
             @RequestParam(name = "tuning", defaultValue = "STANDARD") String tuning,
             @RequestParam(name = "capo", defaultValue = "0") int capo,
             @RequestParam(name = "transpose", defaultValue = "0") int transpose,
@@ -91,7 +96,7 @@ public class ConvertController {
     @PostMapping("/api/suggest")
     public ResponseEntity<?> suggest(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(name = "difficulty", defaultValue = "INTERMEDIATE") String difficulty,
+            @RequestParam(name = "difficulty", defaultValue = STANDARD_DIFFICULTY) String difficulty,
             @RequestParam(name = "transpose", defaultValue = "0") int transpose,
             @RequestParam(name = "barre", defaultValue = "true") boolean barre,
             @RequestParam(name = "strokes", defaultValue = "true") boolean strokes) throws IOException {

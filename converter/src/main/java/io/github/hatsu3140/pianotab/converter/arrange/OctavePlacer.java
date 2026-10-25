@@ -7,7 +7,9 @@ import io.github.hatsu3140.pianotab.converter.model.Tuning;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 手順2.5: メロディとベースを、それぞれギターで弾きやすい高さにオクターブ単位で移す。
@@ -36,13 +38,26 @@ public class OctavePlacer {
     static final int BASS_SPAN = 15;
 
     private static final int MAX_OCTAVES = 3;
+    /** メロディの範囲の下限を決めるときに使う、1弦のフレット */
+    private static final int RANGE_TOP_FRET = 12;
     /** 弾きやすいメロディの高さの目安（1弦のこのフレットまで） */
     static final int COMFORTABLE_FRET = 9;
     /** 範囲からはみ出すのは、弾きやすい高さを超えるより10倍悪い */
     private static final int RANGE_WEIGHT = 10;
     private static final double OUT_OF_RANGE_COST = 10.0;
-    private static final double SWITCH_COST = 4.0;
+    /**
+     * メロディが範囲より少し（4半音まで）低くなるときの減点。少し低いだけならギターでは弾けるので軽く見る
+     * （フレーズの途中でオクターブを変えるより、フレーズごと少し低めに置く方がよい）。それより低いと大きく減点
+     */
+    private static final int MELODY_SOFT_BELOW = 4;
+    private static final double MELODY_BELOW_COST = 2.0;
+    /** ギターで出せない高さ（押さえられない）は、ほぼ禁止 */
+    private static final double UNPLAYABLE_COST = 1000.0;
+    /** フレーズの途中でオクターブを切り替えるのは、よほどのことがない限りしない */
+    private static final double SWITCH_COST = 100.0;
     private static final double PHRASE_SWITCH_COST = 1.0;
+    /** 小節の頭での切り替えは、フレーズの途中よりはまし */
+    private static final double BAR_SWITCH_COST = 20.0;
 
     private final int melodyLow;
     private final int melodyHigh;
@@ -50,6 +65,8 @@ public class OctavePlacer {
     private final int comfortableHigh;
     private final int bassLow;
     private final int bassHigh;
+    /** ギターで出せる一番低い音（一番低い開放弦） */
+    private final int playableLow;
 
     /** レギュラーチューニング・カポなし・12フレットまで */
     public OctavePlacer() {
@@ -62,18 +79,24 @@ public class OctavePlacer {
     public OctavePlacer(Tuning tuning, int capo, int maxFret) {
         this.melodyHigh = tuning.highestPitch() + capo + maxFret;
         this.comfortableHigh = tuning.highestPitch() + capo + Math.min(maxFret, COMFORTABLE_FRET);
-        this.melodyLow = melodyHigh - MELODY_SPAN;
+        // 範囲の下限は、12フレットまでを使うときと同じにする。上級のように高いフレットまで使えても、
+        // 下限まで上がると低めのフレーズを無理に上げてしまうため
+        this.melodyLow = tuning.highestPitch() + capo + Math.min(maxFret, RANGE_TOP_FRET) - MELODY_SPAN;
         this.bassLow = tuning.lowestPitch() + capo;
         this.bassHigh = bassLow + BASS_SPAN;
+        this.playableLow = bassLow;
     }
 
     public Arrangement place(Arrangement arrangement) {
         int melodyShift = bestShift(arrangement.melody(), melodyLow, melodyHigh, comfortableHigh);
         int bassShift = bestShift(arrangement.bass(), bassLow, bassHigh);
         int ticksPerQuarter = arrangement.info().ticksPerQuarter();
-        List<Note> melody = foldSmoothly(shift(arrangement.melody(), melodyShift), ticksPerQuarter, melodyLow, melodyHigh,
-                comfortableHigh);
-        List<Note> bass = foldSmoothly(shift(arrangement.bass(), bassShift), ticksPerQuarter, bassLow, bassHigh, bassHigh);
+        Set<Long> barStarts = new HashSet<>();
+        arrangement.info().measures().forEach(measure -> barStarts.add(measure.startTick()));
+        List<Note> melody = foldSmoothly(shift(arrangement.melody(), melodyShift), ticksPerQuarter, barStarts,
+                new Range(melodyLow, melodyHigh, comfortableHigh, playableLow, melodyHigh, MELODY_SOFT_BELOW));
+        List<Note> bass = foldSmoothly(shift(arrangement.bass(), bassShift), ticksPerQuarter, barStarts,
+                new Range(bassLow, bassHigh, bassHigh, playableLow, melodyHigh, 0));
         if (melodyShift != bassShift) {
             keepMelodyAboveBass(arrangement.melody(), melody, arrangement.bass(), bass);
         }
@@ -82,12 +105,27 @@ public class OctavePlacer {
     }
 
     /**
+     * 声部の高さの範囲。
+     *
+     * @param low             置きたい範囲の下限
+     * @param high            置きたい範囲の上限
+     * @param comfortableHigh 弾きやすい高さの上限（超えると軽く減点）
+     * @param playableLow     ギターで出せる一番低い音
+     * @param playableHigh    ギターで出せる一番高い音（使うフレットの上限まで）
+     * @param softBelow       low より低くても、ここまで（半音）なら軽い減点ですませる
+     */
+    record Range(int low, int high, int comfortableHigh, int playableLow, int playableHigh, int softBelow) {
+    }
+
+    /**
      * 範囲からはみ出す音を、メロディの形をなるべく崩さずにオクターブ移動する。
-     * 音ごとに「何オクターブずらすか」を DP で決める。はみ出すのは大きな減点、
-     * 前の音とずらし方が変わる（音の間隔が変わる）のも減点。休符や長い音のあとなら切り替えの減点は小さい。
+     * 音ごとに「何オクターブずらすか」を DP で決める。はみ出すのは大きな減点で、ギターで出せない高さはほぼ禁止。
+     * 前の音とずらし方が変わる（音の間隔が変わる）のも大きな減点で、切り替えてよいのはフレーズの区切り
+     * （4分音符以上の休符、または2分音符以上の長い音のあと）だけにする。
+     * そのため、ある音が範囲からはみ出すときは、その音だけでなくフレーズごと移す。
      * 弾きやすい高さ（comfortableHigh）を超えるのも軽く減点するので、高すぎるフレーズは丸ごと下がる。
      */
-    static List<Note> foldSmoothly(List<Note> notes, int ticksPerQuarter, int low, int high, int comfortableHigh) {
+    static List<Note> foldSmoothly(List<Note> notes, int ticksPerQuarter, Set<Long> barStarts, Range range) {
         int count = notes.size();
         if (count == 0) {
             return new ArrayList<>(notes);
@@ -106,14 +144,23 @@ public class OctavePlacer {
             if (n > 0) {
                 Note before = notes.get(order[n - 1]);
                 long gap = note.startTick() - (before.startTick() + before.durationTicks());
-                if (gap >= ticksPerQuarter / 2 || before.durationTicks() >= ticksPerQuarter * 2L) {
+                // 次の音が鳴り始めるまでの長さ（のばしたまま次の音を弾く音は、そこで区切れていない）
+                long heard = Math.min(before.durationTicks(), note.startTick() - before.startTick());
+                if (gap >= ticksPerQuarter || heard >= ticksPerQuarter * 2L) {
                     switchCost = PHRASE_SWITCH_COST;
+                } else if (barStarts.contains(note.startTick())) {
+                    switchCost = BAR_SWITCH_COST;
                 }
             }
             for (int s = 0; s < shifts.length; s++) {
                 int pitch = note.pitch() + shifts[s];
-                double own = (Math.max(0, low - pitch) + Math.max(0, pitch - high)) * OUT_OF_RANGE_COST
-                        + Math.max(0, pitch - comfortableHigh) * OUT_OF_RANGE_COST / RANGE_WEIGHT
+                int below = Math.max(0, range.low() - pitch);
+                double own = Math.min(below, range.softBelow()) * MELODY_BELOW_COST
+                        + Math.max(0, below - range.softBelow()) * OUT_OF_RANGE_COST
+                        + Math.max(0, pitch - range.high()) * OUT_OF_RANGE_COST
+                        + (Math.max(0, range.playableLow() - pitch) + Math.max(0, pitch - range.playableHigh()))
+                        * UNPLAYABLE_COST
+                        + Math.max(0, pitch - range.comfortableHigh()) * OUT_OF_RANGE_COST / RANGE_WEIGHT
                         + Math.abs(shifts[s]) / 12 * 0.01;
                 if (n == 0) {
                     cost[n][s] = own;

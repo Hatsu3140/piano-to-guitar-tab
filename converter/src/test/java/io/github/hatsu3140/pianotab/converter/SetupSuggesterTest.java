@@ -20,9 +20,10 @@ class SetupSuggesterTest {
 
     @Test
     void prefersCapoThatMakesBassOpenStrings() {
-        // ベースが G・C・F・G。レギュラーにカポ3なら、6・5・4弦の開放弦が G・C・F になる
+        // ベースが G・C・F・G。レギュラーにカポ3なら、6・5・4弦の開放弦が G・C・F になる。
+        // メロディ（C・F）は、レギュラー＋カポ3では開放弦にならないが、それでもベースの開放弦の方が重く見られる
         Score score = new Score(TestScores.ONE_MEASURE, List.of(), List.of(
-                new Note(72, 0, 480), new Note(76, 480, 480), new Note(79, 960, 480), new Note(76, 1440, 480)),
+                new Note(72, 0, 480), new Note(77, 480, 480), new Note(72, 960, 480), new Note(77, 1440, 480)),
                 List.of(new Note(43, 0, 480), new Note(48, 480, 480), new Note(41, 960, 480), new Note(43, 1440, 480)));
 
         List<SetupSuggestion> suggestions = new SetupSuggester().suggest(score, ADVANCED, 3);
@@ -51,12 +52,15 @@ class SetupSuggesterTest {
     }
 
     @Test
-    void countsOnlyTheThreeBassStrings() {
+    void countsOpenStringsForBassAndMelody() {
         // レギュラー・カポなしの低い3本は E・A・D。G と B は高い弦の開放弦なので数えない
         assertTrue(SetupSuggester.isOpenBassString(40, Tuning.STANDARD, 0));
         assertTrue(SetupSuggester.isOpenBassString(52, Tuning.STANDARD, 0)); // 1オクターブ上の E でもよい
         assertFalse(SetupSuggester.isOpenBassString(43, Tuning.STANDARD, 0));
         assertTrue(SetupSuggester.isOpenBassString(43, Tuning.STANDARD, 3));
+        // 高い3本は E・B・G
+        assertTrue(SetupSuggester.isOpenMelodyString(71, Tuning.STANDARD, 0));
+        assertFalse(SetupSuggester.isOpenMelodyString(62, Tuning.STANDARD, 0));
     }
 
     @Test

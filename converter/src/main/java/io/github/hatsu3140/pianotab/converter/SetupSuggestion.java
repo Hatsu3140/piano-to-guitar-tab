@@ -11,12 +11,13 @@ import java.util.Locale;
  * @param capo               カポの位置（0 = カポなし）
  * @param score              点数（高いほど良い）
  * @param openBassPercent    ベースのうち開放弦で弾ける割合（%）
+ * @param openMelodyPercent  メロディのうち開放弦で弾ける割合（%）
  * @param droppedMelodyNotes 省くメロディの音の数
  * @param droppedBassNotes   省くベースの音の数
  * @param trimmedNotes       途中で短くする音の数
  * @param melodyMove         メロディを弾くときの左手の平均の移動量（フレット）
  */
-public record SetupSuggestion(String tuning, int capo, double score, int openBassPercent,
+public record SetupSuggestion(String tuning, int capo, double score, int openBassPercent, int openMelodyPercent,
                               int droppedMelodyNotes, int droppedBassNotes, int trimmedNotes,
                               double melodyMove) {
 
@@ -24,6 +25,7 @@ public record SetupSuggestion(String tuning, int capo, double score, int openBas
     public List<String> reasons() {
         List<String> reasons = new ArrayList<>();
         reasons.add("ベースの " + openBassPercent + "% を開放弦で弾けます");
+        reasons.add("メロディの " + openMelodyPercent + "% を開放弦で弾けます");
         reasons.add(droppedMelodyNotes == 0 ? "メロディは全部残ります" : "メロディを " + droppedMelodyNotes + " 音省きます");
         reasons.add(String.format(Locale.ROOT, "メロディの手の移動は平均 %.1f フレットです", melodyMove));
         if (droppedBassNotes > 0) {

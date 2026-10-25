@@ -23,7 +23,8 @@ import java.util.Map;
  *   <li>メロディを省かずに残せた割合</li>
  *   <li>ベースを省かずに残せた割合</li>
  *   <li>途中で短くした音の少なさ</li>
- *   <li>メロディを弾くときの左手の移動の少なさ</li>
+ *   <li>メロディの音を開放弦で弾ける割合（ベースの開放弦ほどは重く見ない）</li>
+ *   <li>メロディを弾くときの左手の移動の少なさ（間奏のリードなどでどうしても動くので、軽めに見る）</li>
  *   <li>チューニングを変える手間（レギュラーが一番楽、6弦だけ変えるドロップDが次）</li>
  *   <li>カポの高さ（6フレットより上は、使えるネックが短くなり音も細くなるので少し減点）</li>
  * </ul>
@@ -42,12 +43,15 @@ public class SetupSuggester {
     private static final Map<Tuning, Double> RETUNE_COST = Map.of(Tuning.DROP_D, 1.0);
     private static final double OTHER_TUNING_COST = 3.0;
     /** メロディの手の移動 1フレット分（平均）の減点 */
-    private static final double MELODY_MOVE_COST = 3.0;
+    private static final double MELODY_MOVE_COST = 1.5;
+    private static final double OPEN_MELODY_WEIGHT = 15;
     /** カポがこのフレットより上なら減点する */
     private static final int HIGH_CAPO_FROM = 5;
     private static final double HIGH_CAPO_COST = 1.0;
     /** ベースに使う弦の数（太い方から） */
     private static final int BASS_STRINGS = 3;
+    /** メロディに使う弦の数（細い方から） */
+    private static final int MELODY_STRINGS = 3;
 
     private final GuitarTabConverter converter;
 
@@ -94,18 +98,24 @@ public class SetupSuggester {
         // 実際に開放弦で弾いているかではなく、低い3本の弦の開放弦と同じ音名か（オクターブや押さえ方はあとで変えられる）で数える
         Tuning tuning = options.tuning();
         long openBass = bass.stream().filter(note -> isOpenBassString(note.note().pitch(), tuning, capo)).count();
+        List<TabNote> melody = result.tabScore().melody();
+        long openMelody = melody.stream()
+                .filter(note -> isOpenMelodyString(note.note().pitch(), tuning, capo)).count();
+        double openMelodyRatio = ratio(openMelody, melody.size());
 
         double openBassRatio = ratio(openBass, bass.size());
         double melodyKept = 1 - ratio(report.droppedMelodyNotes(), report.melodyNotes());
         double bassKept = 1 - ratio(report.droppedBassNotes(), report.bassNotes());
-        int keptNotes = result.tabScore().melody().size() + bass.size();
+        int keptNotes = melody.size() + bass.size();
         double trimmed = ratio(report.trimmedNotes(), keptNotes);
-        double melodyMove = averageMelodyMove(result.tabScore().melody(), capo);
-        double total = openBassRatio * OPEN_BASS_WEIGHT + melodyKept * MELODY_KEPT_WEIGHT
+        double melodyMove = averageMelodyMove(melody, capo);
+        double total = openBassRatio * OPEN_BASS_WEIGHT + openMelodyRatio * OPEN_MELODY_WEIGHT
+                + melodyKept * MELODY_KEPT_WEIGHT
                 + bassKept * BASS_KEPT_WEIGHT - trimmed * TRIMMED_WEIGHT - retuneCost(options.tuning())
                 - Math.max(0, capo - HIGH_CAPO_FROM) * HIGH_CAPO_COST - melodyMove * MELODY_MOVE_COST;
         return new SetupSuggestion(keyOf(options.tuning()), capo, total,
-                (int) Math.round(openBassRatio * 100), report.droppedMelodyNotes(), report.droppedBassNotes(),
+                (int) Math.round(openBassRatio * 100), (int) Math.round(openMelodyRatio * 100),
+                report.droppedMelodyNotes(), report.droppedBassNotes(),
                 report.trimmedNotes(), melodyMove);
     }
 
@@ -134,7 +144,16 @@ public class SetupSuggester {
 
     /** ベースに使う低い3本の弦のどれかの開放弦と同じ音名か */
     static boolean isOpenBassString(int pitch, Tuning tuning, int capo) {
-        for (int string = tuning.stringCount() - BASS_STRINGS + 1; string <= tuning.stringCount(); string++) {
+        return matchesOpenString(pitch, tuning, capo, tuning.stringCount() - BASS_STRINGS + 1, tuning.stringCount());
+    }
+
+    /** メロディに使う高い3本の弦のどれかの開放弦と同じ音名か */
+    static boolean isOpenMelodyString(int pitch, Tuning tuning, int capo) {
+        return matchesOpenString(pitch, tuning, capo, 1, MELODY_STRINGS);
+    }
+
+    private static boolean matchesOpenString(int pitch, Tuning tuning, int capo, int fromString, int toString) {
+        for (int string = fromString; string <= toString; string++) {
             if (Math.floorMod(tuning.openPitch(string) + capo - pitch, 12) == 0) {
                 return true;
             }
